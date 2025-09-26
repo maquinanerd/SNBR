@@ -107,8 +107,8 @@ PROMPT_FILE_PATH = os.path.join(
 )
 
 AI_MODELS = {
-    'primary': os.getenv('AI_PRIMARY_MODEL', 'gemini-1.5-flash-latest'),
-    'fallback': os.getenv('AI_FALLBACK_MODEL', 'gemini-1.5-flash-latest'),
+    'primary': os.getenv('AI_PRIMARY_MODEL', 'gemini-2.5-flash'),
+    'fallback': os.getenv('AI_FALLBACK_MODEL', 'gemini-2.5-flash-lite'),
 }
 
 AI_GENERATION_CONFIG = {

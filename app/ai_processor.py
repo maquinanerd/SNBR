@@ -11,7 +11,9 @@ import time
 from pathlib import Path 
 from typing import Any, Dict, List, Optional, Tuple, ClassVar
 
-from .config import AI_API_KEYS, SCHEDULE_CONFIG
+from google.api_core import exceptions as google_exceptions
+
+from .config import AI_API_KEYS, SCHEDULE_CONFIG, AI_MODELS
 from .exceptions import AIProcessorError, AllKeysFailedError
 
 logger = logging.getLogger(__name__)
@@ -31,7 +33,7 @@ Se algum desses itens aparecer no texto de origem, exclua-os do resultado.
 
 class AIProcessor:
     """
-    Handles content rewriting using a Generative AI model with API key failover.
+    Handles content rewriting using a Generative AI model with API key and model failover.
     """
     _prompt_template: ClassVar[Optional[str]] = None
 
@@ -47,35 +49,48 @@ class AIProcessor:
         logger.info(f"AI Processor initialized with {len(self.api_keys)} API key(s).")
 
         self.current_key_index = 0
-        self.model = None
-        self._configure_model()
+        self.model: Optional[genai.GenerativeModel] = None
+        
+        # Try to configure with the first key, but don't fail catastrophically if it fails.
+        # The rewrite_content method has robust failover.
+        try:
+            self._configure_model_with_key(AI_MODELS['primary'], 0)
+        except AIProcessorError:
+            logger.warning("Initial AI model configuration failed. Will attempt again on first use.")
 
-    def _configure_model(self):
-        """Configures the generative AI model with the current API key."""
-        if self.current_key_index >= len(self.api_keys):
-            raise AllKeysFailedError(f"All {len(self.api_keys)} API keys have failed.")
+    def _configure_model_with_key(self, model_name: str, key_index: int):
+        """Configures the generative AI model with a specific API key and model."""
+        if key_index >= len(self.api_keys):
+            raise AllKeysFailedError(f"All {len(self.api_keys)} API keys have been tried.")
 
+        self.current_key_index = key_index
         api_key = self.api_keys[self.current_key_index]
+        
         try:
             genai.configure(api_key=api_key)
-            # Enforce JSON output from the model for reliable parsing
             generation_config = genai.types.GenerationConfig(
                 response_mime_type="application/json"
             )
             self.model = genai.GenerativeModel(
-                'gemini-1.5-flash-latest',
+                model_name,
                 generation_config=generation_config
             )
-            logger.info(f"Configured AI model with API key index {self.current_key_index}.")
+            logger.info(f"Configured AI with model '{model_name}' and API key index {self.current_key_index}.")
         except Exception as e:
-            logger.error(f"Failed to configure Gemini with API key index {self.current_key_index}: {e}")
-            self._failover_to_next_key()
-            self._configure_model()  # Retry configuration with the new key
+            logger.error(f"Failed to configure Gemini with model '{model_name}' and key index {self.current_key_index}: {e}")
+            # We will let the calling function handle the failover.
+            raise AIProcessorError(f"Configuration failed for model {model_name}") from e
 
     def _failover_to_next_key(self):
-        """Switches to the next available API key."""
+        """Switches to the next available API key and returns True if successful."""
         self.current_key_index += 1
-        logger.warning("Failing over to next API key.")
+        if self.current_key_index < len(self.api_keys):
+            logger.warning(f"Failing over to next API key index: {self.current_key_index}.")
+            return True
+        else:
+            logger.critical("All API keys have been exhausted.")
+            self.current_key_index = 0 # Reset for next cycle
+            return False
 
     @classmethod
     def _load_prompt_template(cls) -> str:
@@ -129,23 +144,7 @@ class AIProcessor:
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
         Rewrites the given article content using the AI model.
-        This method is designed to be robust and backward-compatible.
-
-        Args:
-            title: The original title of the article.
-            content_html: The full HTML content of the article.
-            source_url: The original URL of the article.
-            category: The content category (e.g., 'movies'). Overrides instance category.
-            videos: A list of dictionaries of extracted YouTube videos.
-            images: A list of extracted image URLs.
-            tags: A list of extracted tags.
-            fonte_nome: The name of the source (e.g., 'ScreenRant').
-            source_name: Alternative name for the source.
-            **kwargs: Catches extra arguments like 'domain' for backward compatibility.
-
-        Returns:
-            A tuple containing a dictionary with the rewritten text and a failure
-            reason (or None if successful).
+        This method is designed to be robust and backward-compatible, with model and key failover.
         """
         prompt_template = self._load_prompt_template()
 
@@ -185,36 +184,45 @@ class AIProcessor:
         prompt = self._safe_format_prompt(prompt_template, fields)
 
         last_error = "Unknown error"
-        for _ in range(len(self.api_keys)):
-            try:
-                logger.info(f"Sending content to AI for rewriting (Key index: {self.current_key_index})...")
-                response = self.model.generate_content(prompt)
+        key_index = self.current_key_index
 
-                parsed_data = self._parse_response(response.text)
+        while key_index < len(self.api_keys):
+            models_to_try = [AI_MODELS['primary'], AI_MODELS['fallback']]
+            
+            for model_name in models_to_try:
+                try:
+                    self._configure_model_with_key(model_name, key_index)
+                    
+                    logger.info(f"Sending content to AI for rewriting (Key index: {key_index}, Model: {model_name})...")
+                    response = self.model.generate_content(prompt)
+                    parsed_data = self._parse_response(response.text)
 
-                if not parsed_data:
-                    raise AIProcessorError("Failed to parse or validate AI response. See logs for details.")
+                    if not parsed_data:
+                        raise AIProcessorError("Failed to parse or validate AI response. See logs for details.")
 
-                # If the AI returned a specific rejection error, handle it as a failure.
-                if "erro" in parsed_data:
-                    return None, parsed_data["erro"]
+                    if "erro" in parsed_data:
+                        logger.warning(f"AI returned a handled error: {parsed_data['erro']}")
+                        return None, parsed_data["erro"]
 
-                # Success: Add a delay between calls to respect rate limits
-                time.sleep(SCHEDULE_CONFIG.get('api_call_delay', 30))
+                    # Success: Add a delay and distribute load for the next article
+                    time.sleep(SCHEDULE_CONFIG.get('per_article_delay_seconds', 8))
+                    self._failover_to_next_key()
+                    return parsed_data, None
 
-                return parsed_data, None
+                except (google_exceptions.NotFound, google_exceptions.PermissionDenied, google_exceptions.ResourceExhausted) as e:
+                    last_error = str(e)
+                    logger.warning(f"API call failed for model '{model_name}' with key index {key_index}: {last_error}. Trying next model...")
+                    continue
+                
+                except Exception as e:
+                    last_error = str(e)
+                    logger.error(f"An unexpected error occurred with model '{model_name}' and key {key_index}: {last_error}")
+                    break
+            
+            key_index += 1
+            logger.warning(f"All models failed for key index {key_index - 1}. Trying next key.")
 
-            except Exception as e:
-                last_error = str(e)
-                logger.error(f"AI content generation failed with key index {self.current_key_index}: {last_error}")
-                self._failover_to_next_key()
-                if self.current_key_index < len(self.api_keys):
-                    self._configure_model()
-                else:
-                    logger.critical("All API keys have failed.")
-                    break  # Exit loop if all keys are exhausted
-        
-        final_reason = f"All available API keys failed. Last error: {last_error}"
+        final_reason = f"All available API keys and models failed. Last error: {last_error}"
         logger.critical(f"Failed to rewrite content. {final_reason}")
         return None, final_reason
 
@@ -236,12 +244,10 @@ class AIProcessor:
                 logger.error(f"AI response is not a dictionary. Received type: {type(data)}")
                 return None
 
-            # Check for a structured error response from the AI (e.g., content rejected)
             if "erro" in data:
                 logger.warning(f"AI returned a rejection error: {data['erro']}")
-                return data  # Return the error dict to be handled by the caller
+                return data
 
-            # Validate the presence of all required keys for a successful rewrite
             required_keys = [
                 "titulo_final", "conteudo_final", "meta_description",
                 "focus_keyword", "tags", "yoast_meta"
@@ -253,7 +259,6 @@ class AIProcessor:
                 logger.debug(f"Received data: {data}")
                 return None
 
-            # Validate the inner keys of yoast_meta
             if 'yoast_meta' in data and isinstance(data['yoast_meta'], dict):
                 required_yoast_keys = [
                     "_yoast_wpseo_title", "_yoast_wpseo_metadesc",
