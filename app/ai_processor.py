@@ -3,18 +3,15 @@
 Handles content rewriting using a Generative AI model with API key failover.
 """
 import json
-import google.generativeai as genai
 import logging
 from urllib.parse import urlparse
-import re
 import time
 from pathlib import Path 
 from typing import Any, Dict, List, Optional, Tuple, ClassVar
 
-from google.api_core import exceptions as google_exceptions
-
-from .config import AI_API_KEYS, SCHEDULE_CONFIG, AI_MODEL
+from .config import AI_API_KEYS, SCHEDULE_CONFIG
 from .exceptions import AIProcessorError, AllKeysFailedError
+from . import ai_client_gemini as ai_client
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +30,7 @@ Se algum desses itens aparecer no texto de origem, exclua-os do resultado.
 
 class AIProcessor:
     """
-    Handles content rewriting using a Generative AI model with API key and model failover.
+    Handles content rewriting using a Generative AI model with API key failover.
     """
     _prompt_template: ClassVar[Optional[str]] = None
 
@@ -47,57 +44,25 @@ class AIProcessor:
             raise AIProcessorError("No GEMINI_ API keys found in the environment. Please set at least one GEMINI_... key.")
 
         logger.info(f"AI Processor initialized with {len(self.api_keys)} API key(s).")
-
         self.current_key_index = 0
-        self.model: Optional[genai.GenerativeModel] = None
-        
-        try:
-            self._configure_model_with_key(AI_MODEL, 0)
-        except AIProcessorError:
-            logger.warning("Initial AI model configuration failed. Will attempt again on first use.")
-
-    def _configure_model_with_key(self, model_name: str, key_index: int):
-        """Configures the generative AI model with a specific API key and model."""
-        if key_index >= len(self.api_keys):
-            raise AllKeysFailedError(f"All {len(self.api_keys)} API keys have been tried.")
-
-        self.current_key_index = key_index
-        api_key = self.api_keys[self.current_key_index]
-        
-        try:
-            genai.configure(api_key=api_key)
-            generation_config = genai.types.GenerationConfig(
-                response_mime_type="application/json"
-            )
-            self.model = genai.GenerativeModel(
-                model_name,
-                generation_config=generation_config
-            )
-            logger.info(f"Configured AI with model '{model_name}' and API key index {self.current_key_index}.")
-        except Exception as e:
-            logger.error(f"Failed to configure Gemini with model '{model_name}' and key index {self.current_key_index}: {e}")
-            raise AIProcessorError(f"Configuration failed for model {model_name}") from e
 
     def _failover_to_next_key(self):
         """Switches to the next available API key and returns True if successful."""
         self.current_key_index += 1
-        if self.current_key_index < len(self.api_keys):
-            logger.warning(f"Failing over to next API key index: {self.current_key_index}.")
-            return True
-        else:
-            logger.critical("All API keys have been exhausted.")
+        if self.current_key_index >= len(self.api_keys):
             self.current_key_index = 0 # Reset for next cycle
+            logger.critical("All API keys have been exhausted. Resetting to first key.")
             return False
+        logger.warning(f"Failing over to next API key index: {self.current_key_index}.")
+        return True
 
     @classmethod
     def _load_prompt_template(cls) -> str:
         """Loads the universal prompt from 'universal_prompt.txt'."""
         if cls._prompt_template is None:
             try:
-                # Assuming the script is run from the project root
                 prompt_path = Path('universal_prompt.txt')
                 if not prompt_path.exists():
-                    # Fallback for when run as a module
                     prompt_path = Path(__file__).resolve().parent.parent / 'universal_prompt.txt'
 
                 with open(prompt_path, 'r', encoding='utf-8') as f:
@@ -111,10 +76,7 @@ class AIProcessor:
     @staticmethod
     def _safe_format_prompt(template: str, fields: Dict[str, Any]) -> str:
         """
-        Safely formats a string template that may contain literal curly braces
-        by escaping all braces and then un-escaping only the valid placeholders.
-        This prevents `ValueError: Invalid format specifier` when the prompt
-        contains examples of JSON objects.
+        Safely formats a string template that may contain literal curly braces.
         """
         class _SafeDict(dict):
             def __missing__(self, key: str) -> str:
@@ -140,8 +102,7 @@ class AIProcessor:
         **kwargs: Any,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
-        Rewrites the given article content using the AI model.
-        This method is designed to be robust and backward-compatible, with key failover.
+        Rewrites the given article content using the AI model with key failover.
         """
         prompt_template = self._load_prompt_template()
 
@@ -180,18 +141,21 @@ class AIProcessor:
         prompt = self._safe_format_prompt(prompt_template, fields)
 
         last_error = "Unknown error"
-        key_index = self.current_key_index
-
-        while key_index < len(self.api_keys):
+        
+        for _ in range(len(self.api_keys)):
+            api_key = self.api_keys[self.current_key_index]
             try:
-                self._configure_model_with_key(AI_MODEL, key_index)
+                ai_client.configure_api(api_key)
                 
-                logger.info(f"Sending content to AI for rewriting (Key index: {key_index}, Model: {AI_MODEL})...")
-                response = self.model.generate_content(prompt)
-                parsed_data = self._parse_response(response.text)
+                logger.info(f"Sending content to AI for rewriting (Key index: {self.current_key_index})...")
+                
+                generation_config = {"response_mime_type": "application/json"}
+                response_text = ai_client.generate_text(prompt, generation_config=generation_config)
+                
+                parsed_data = self._parse_response(response_text)
 
                 if not parsed_data:
-                    raise AIProcessorError("Failed to parse or validate AI response. See logs for details.")
+                    raise AIProcessorError("Failed to parse or validate AI response.")
 
                 if "erro" in parsed_data:
                     logger.warning(f"AI returned a handled error: {parsed_data['erro']}")
@@ -203,11 +167,11 @@ class AIProcessor:
 
             except Exception as e:
                 last_error = str(e)
-                logger.error(f"An unexpected error occurred with model '{AI_MODEL}' and key {key_index}: {last_error}")
-                key_index += 1
-                logger.warning(f"Trying next key.")
+                logger.error(f"An unexpected error occurred with key index {self.current_key_index}: {last_error}")
+                if not self._failover_to_next_key():
+                    break # All keys failed
 
-        final_reason = f"All available API keys failed for model {AI_MODEL}. Last error: {last_error}"
+        final_reason = f"All available API keys failed. Last error: {last_error}"
         logger.critical(f"Failed to rewrite content. {final_reason}")
         return None, final_reason
 
