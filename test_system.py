@@ -10,7 +10,7 @@ from pathlib import Path
 # Load environment variables
 env_file = Path('.env')
 if env_file.exists():
-    with open(env_file) as f:
+    with open(env_file, encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith('#') and '=' in line:
@@ -32,7 +32,7 @@ def test_feed_processing():
     
     # Test with G1 Economia feed
     test_url = "https://g1.globo.com/rss/g1/economia/"
-    entries = feed_reader.read_single_feed(test_url, "g1_economia")
+    entries = feed_reader.read_feeds({'urls': [test_url]}, "g1_economia")
     
     if entries:
         print(f"✓ Successfully retrieved {len(entries)} entries from G1 Economia")

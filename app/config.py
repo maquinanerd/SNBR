@@ -7,71 +7,27 @@ load_dotenv()
 
 # --- Ordem de processamento dos feeds ---
 PIPELINE_ORDER: List[str] = [
-    'estadao_politica',
-    'infomoney_politica',
-    'estadao_economia',
-    'infomoney_economia',
-    'infomoney_business',
-    'estadao_brasil',
-    'infomoney_mercados',
-    'infomoney_investir',
-    'infomoney_mundo',
-    'infomoney_carreira',
+    'lance',
+    'globo_futebol',
+    'globo_internacional',
 ]
 
 # --- Feeds RSS (padronizados, sem "synthetic_from") ---
 RSS_FEEDS: Dict[str, Dict[str, Any]] = {
-    'estadao_politica': {
-        'urls': ['https://www.estadao.com.br/arc/outboundfeeds/feeds/rss/sections/politica/'],
-        'category': 'politica',
-        'source_name': 'Estadão',
+    'lance': {
+        'urls': ['https://aprenderpoker.site/feeds/lance/rss.xml'],
+        'category': 'futebol',
+        'source_name': 'LANCE!',
     },
-    'infomoney_politica': {
-        'urls': ['https://www.infomoney.com.br/politica/feed/'],
-        'category': 'politica',
-        'source_name': 'InfoMoney',
+    'globo_futebol': {
+        'urls': ['https://aprenderpoker.site/feeds/globo/futebol/rss'],
+        'category': 'futebol',
+        'source_name': 'Globo Esporte',
     },
-
-    'estadao_economia': {
-        'urls': ['https://www.estadao.com.br/arc/outboundfeeds/feeds/rss/sections/economia/'],
-        'category': 'economia',
-        'source_name': 'Estadão',
-    },
-    'infomoney_economia': {
-        'urls': ['https://www.infomoney.com.br/economia/feed/'],
-        'category': 'economia',
-        'source_name': 'InfoMoney',
-    },
-
-    'estadao_brasil': {
-        'urls': ['https://www.estadao.com.br/arc/outboundfeeds/feeds/rss/sections/brasil/'],
-        'category': 'brasil',
-        'source_name': 'Estadão',
-    },
-    'infomoney_mercados': {
-        'urls': ['https://www.infomoney.com.br/mercados/feed/'],
-        'category': 'mercados',
-        'source_name': 'InfoMoney',
-    },
-    'infomoney_business': {
-        'urls': ['https://www.infomoney.com.br/business/feed/'],
-        'category': 'economia',
-        'source_name': 'InfoMoney',
-    },
-    'infomoney_investir': {
-        'urls': ['https://www.infomoney.com.br/onde-investir/feed/'],
-        'category': 'onde-investir',
-        'source_name': 'InfoMoney',
-    },
-    'infomoney_mundo': {
-        'urls': ['https://www.infomoney.com.br/mundo/feed/'],
-        'category': 'internacional',
-        'source_name': 'InfoMoney',
-    },
-    'infomoney_carreira': {
-        'urls': ['https://www.infomoney.com.br/carreira/feed/'],
-        'category': 'carreira',
-        'source_name': 'InfoMoney',
+    'globo_internacional': {
+        'urls': ['https://aprenderpoker.site/feeds/globo/internacional/rss'],
+        'category': 'futebol-internacional',
+        'source_name': 'Globo Esporte',
     },
 }
 
@@ -123,16 +79,10 @@ WORDPRESS_CONFIG = {
 
 # IDs das categorias no WordPress (ajuste os IDs conforme o seu WP)
 WORDPRESS_CATEGORIES: Dict[str, int] = {
-    'politica': 21,
-    'economia': 22,
-    'brasil': 22,          # TODO: substituir pelo ID real da sua categoria "Brasil"
-    'mercados': 26,
-    'onde-investir': 29,
-    'internacional': 30,
-    'carreira': 202,
+    'futebol': 8,
+    'futebol-internacional': 9,
     # Categorias genéricas
     'Notícias': 1,
-    'Dinheiro': 13,
 }
 
 # --- Agendador / Pipeline ---

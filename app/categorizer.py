@@ -18,12 +18,10 @@ class Categorizer:
         Returns:
             The corresponding WordPress category ID, or None if no match is found.
         """
-        if source_id.endswith('_movies'):
-            return wp_categories.get('Filmes')
-        if source_id.endswith(('_tv', '_series')):
-            return wp_categories.get('Séries')
-        if source_id.endswith('_games'):
-            return wp_categories.get('Games')
+        if source_id in ('lance', 'globo_futebol'):
+            return wp_categories.get('futebol')
+        if source_id == 'globo_internacional':
+            return wp_categories.get('futebol-internacional')
 
         logger.warning(f"Could not map source_id '{source_id}' to a known category.")
         return None
