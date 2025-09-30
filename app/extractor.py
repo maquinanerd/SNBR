@@ -933,43 +933,47 @@ class ContentExtractor:
         soup = BeautifulSoup(html, 'lxml')
         domain = urlparse(url).netloc.lower().replace('www.', '')
 
-        # --- Site-specific master container selectors ---
-        SITE_SELECTORS = {
-            'lance.com.br': {'tag': 'div', 'attrs': {'class': 'desk-news:max-w-[714px]'}},
-            # Exemplo para GE, conforme sugerido pelo usuário
-            # 'ge.globo.com': {'tag': 'div', 'attrs': {'class': 'materia-conteudo'}},
-        }
-
         # --- Step 1: Get metadata from the full page ---
         featured_image_url = self._pick_featured_image(soup, url)
         title = (og_title.get('content') if (og_title := soup.find('meta', property='og:title')) else None) or (soup.title.string if soup.title else 'No Title Found')
         excerpt = (meta_desc.get('content') if (meta_desc := soup.find('meta', attrs={'name': 'description'})) else None) or \
                   (og_desc.get('content') if (og_desc := soup.find('meta', property='og:description')) else '')
-        
-        # Get videos from the full page as a fallback
         videos_full_page = self._extract_youtube_videos(soup)
 
-        # --- Step 2: Find the master container using site-specific rules ---
+        # --- Step 2: Find and clean the master container using site-specific rules ---
         master_container = None
-        for site_domain, selector_rules in SITE_SELECTORS.items():
-            if site_domain in domain:
-                # Use .get() for safer dictionary access
-                tag = selector_rules.get('tag', 'div')
-                attrs = selector_rules.get('attrs', {})
-                master_container = soup.find(tag, **attrs)
-                if master_container:
-                    logger.info(f"Found master container for {domain} using selector: {selector_rules}")
-                    break
         
-        # --- Step 3: Process content based on whether a container was found ---
-        if master_container:
-            # PRECISE EXTRACTION
-            logger.info(f"Using PRECISE extraction for {url}.")
-            
-            # Example of cleaning junk from within the container
-            # for junk in master_container.select('.ad-class'): junk.decompose()
+        if 'lance.com.br' in domain:
+            logger.info(f"Applying 'lance.com.br' specific extractor.")
+            master_container = soup.find('div', class_='desk-news:max-w-[714px]')
+            if master_container:
+                # Lance-specific cleaning: remove related section inside the container
+                related_title = master_container.find('h2', string='Relacionadas')
+                if related_title:
+                    parent_section = related_title.find_parent('section')
+                    if parent_section:
+                        logger.info("INFO: Removing 'Relacionadas' section found inside the Lance container.")
+                        parent_section.decompose()
 
-            # Extract images and videos from WITHIN the container
+        elif 'ge.globo.com' in domain:
+            logger.info(f"Applying 'ge.globo.com' specific extractor.")
+            master_container = soup.find('div', class_='materia-conteudo')
+            if master_container:
+                # GE-specific cleaning: remove video player blocks
+                for video_player in master_container.find_all('div', class_='video-player'):
+                    logger.info("INFO: Removing 'video-player' block from GE container.")
+                    video_player.decompose()
+        
+        # --- Step 3: Process content if a master container was found ---
+        if master_container:
+            logger.info(f"Successfully found master container for {domain}.")
+
+            # --- Final Universal Cleanup ---
+            # Remove all script and style tags from the container to prevent AI confusion
+            for element in master_container.find_all(['script', 'style']):
+                element.decompose()
+            
+            # Extract images and videos from WITHIN the cleaned container
             body_images = [urljoin(url, img.get('src') or img.get('data-src')) for img in master_container.find_all('img') if img.get('src') or img.get('data-src')]
             videos_in_container = self._extract_youtube_videos(master_container)
             
@@ -993,6 +997,6 @@ class ContentExtractor:
                 "source_url": url,
             }
         else:
-            # FALLBACK to GENERIC EXTRACTION
-            logger.warning(f"No master container rule found for {domain}. Falling back to generic (trafilatura) extractor.")
+            # --- Step 4: Fallback for unhandled sites ---
+            logger.warning(f"No specific extractor rule found for {domain}. Falling back to generic (trafilatura) extractor.")
             return self._extract_with_trafilatura(html, url)
