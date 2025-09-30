@@ -237,7 +237,7 @@ def run_pipeline_cycle():
                             featured_media_id = next(iter(uploaded_id_map.values()), None)
 
                         # 3.5: Set alt text for uploaded images
-                        focus_kw = rewritten_data.get("focus_keyword", "")
+                        focus_kw = rewritten_data.get("focus_keyphrase", "")
                         # The AI is asked to provide a dict like: { "filename.jpg": "alt text" }
                         alt_map = rewritten_data.get("image_alt_texts", {})
 
@@ -271,7 +271,7 @@ def run_pipeline_cycle():
                             'content': content_html,
                             'excerpt': rewritten_data.get('meta_description', ''),
                             'categories': [wp_category_id] if wp_category_id else [],
-                            'tags': rewritten_data.get('tags', []),
+                            'tags': rewritten_data.get('tags_sugeridas', []),
                             'featured_media': featured_media_id,
                             'meta': yoast_meta,
                         }

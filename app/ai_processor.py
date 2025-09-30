@@ -199,7 +199,7 @@ class AIProcessor:
 
             required_keys = [
                 "titulo_final", "conteudo_final", "meta_description",
-                "focus_keyword", "tags", "yoast_meta"
+                "focus_keyphrase", "tags_sugeridas", "yoast_meta"
             ]
             missing_keys = [key for key in required_keys if key not in data]
 
