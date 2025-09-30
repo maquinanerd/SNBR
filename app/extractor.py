@@ -925,9 +925,57 @@ class ContentExtractor:
             logger.error(f"An unexpected error occurred during extraction for {url}: {e}", exc_info=True)
             return None
 
+    def _clean_html_for_lance(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
+        """
+        Função de limpeza robusta, ESPECÍFICA para o site Lance!.
+        """
+        logger.info("Applying 'lance.com.br' specific extractor.")
+        master_container = soup.find('div', class_='desk-news:max-w-[714px]')
+
+        if not master_container:
+            logger.error("ERROR (Lance!): Master container ('desk-news:max-w-[714px]') not found.")
+            return None
+
+        # Remove 'Related' sections from within the container
+        related_titles = master_container.find_all('h2', string='Relacionadas')
+        if related_titles:
+            logger.info(f"INFO (Lance!): Found and removing {len(related_titles)} 'Relacionadas' sections from within the content.")
+            for title in related_titles:
+                parent_section = title.find_parent('section')
+                if parent_section:
+                    parent_section.decompose()
+
+        # Final cleanup of scripts and styles
+        for element in master_container.find_all(['script', 'style']):
+            element.decompose()
+
+        return master_container
+
+    def _clean_html_for_ge(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
+        """
+        Função de limpeza robusta, ESPECÍFICA para o site Globo Esporte.
+        """
+        logger.info("Applying 'ge.globo.com' specific extractor.")
+        master_container = soup.find('div', class_='materia-conteudo')
+
+        if not master_container:
+            logger.error("ERROR (GE): Master container ('materia-conteudo') not found.")
+            return None
+            
+        # GE-specific cleaning: remove video player blocks
+        for video_player in master_container.find_all('div', class_='video-player'):
+            logger.info("INFO: Removing 'video-player' block from GE container.")
+            video_player.decompose()
+
+        # Final cleanup of scripts and styles
+        for element in master_container.find_all(['script', 'style']):
+            element.decompose()
+
+        return master_container
+
     def extract(self, html: str, url: str) -> Optional[Dict[str, Any]]:
         """
-        Main extraction flow. Uses a precise, site-specific "cutting" method.
+        Main extraction flow. Uses a modular, site-specific cleaning method.
         If no specific rule is found, it falls back to a generic extractor.
         """
         soup = BeautifulSoup(html, 'lxml')
@@ -940,44 +988,22 @@ class ContentExtractor:
                   (og_desc.get('content') if (og_desc := soup.find('meta', property='og:description')) else '')
         videos_full_page = self._extract_youtube_videos(soup)
 
-        # --- Step 2: Find and clean the master container using site-specific rules ---
-        master_container = None
-        
+        # --- Step 2: Route to the correct site-specific cleaner ---
+        cleaned_container = None
         if 'lance.com.br' in domain:
-            logger.info(f"Applying 'lance.com.br' specific extractor.")
-            master_container = soup.find('div', class_='desk-news:max-w-[714px]')
-            if master_container:
-                # Lance-specific cleaning: remove related section inside the container
-                related_title = master_container.find('h2', string='Relacionadas')
-                if related_title:
-                    parent_section = related_title.find_parent('section')
-                    if parent_section:
-                        logger.info("INFO: Removing 'Relacionadas' section found inside the Lance container.")
-                        parent_section.decompose()
-
+            cleaned_container = self._clean_html_for_lance(soup)
         elif 'ge.globo.com' in domain:
-            logger.info(f"Applying 'ge.globo.com' specific extractor.")
-            master_container = soup.find('div', class_='materia-conteudo')
-            if master_container:
-                # GE-specific cleaning: remove video player blocks
-                for video_player in master_container.find_all('div', class_='video-player'):
-                    logger.info("INFO: Removing 'video-player' block from GE container.")
-                    video_player.decompose()
+            cleaned_container = self._clean_html_for_ge(soup)
         
-        # --- Step 3: Process content if a master container was found ---
-        if master_container:
-            logger.info(f"Successfully found master container for {domain}.")
-
-            # --- Final Universal Cleanup ---
-            # Remove all script and style tags from the container to prevent AI confusion
-            for element in master_container.find_all(['script', 'style']):
-                element.decompose()
+        # --- Step 3: Process content if a cleaned container was returned ---
+        if cleaned_container:
+            logger.info(f"Successfully cleaned content for {domain} using specific extractor.")
             
             # Extract images and videos from WITHIN the cleaned container
-            body_images = [urljoin(url, img.get('src') or img.get('data-src')) for img in master_container.find_all('img') if img.get('src') or img.get('data-src')]
-            videos_in_container = self._extract_youtube_videos(master_container)
+            body_images = [urljoin(url, img.get('src') or img.get('data-src')) for img in cleaned_container.find_all('img') if img.get('src') or img.get('data-src')]
+            videos_in_container = self._extract_youtube_videos(cleaned_container)
             
-            final_content_html = str(master_container)
+            final_content_html = str(cleaned_container)
             
             # Combine videos, prioritizing ones from the container
             video_ids = set()
