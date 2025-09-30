@@ -15,7 +15,7 @@ PIPELINE_ORDER: List[str] = [
 # --- Feeds RSS (padronizados, sem "synthetic_from") ---
 RSS_FEEDS: Dict[str, Dict[str, Any]] = {
     'lance': {
-        'urls': ['https://aprenderpoker.site/feeds/lance/rss.xml'],
+        'urls': ['https://aprenderpoker.site/feeds/lance/futebol/rss'],
         'category': 'futebol',
         'source_name': 'LANCE!',
     },
