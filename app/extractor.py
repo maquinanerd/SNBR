@@ -927,34 +927,72 @@ class ContentExtractor:
 
     def extract(self, html: str, url: str) -> Optional[Dict[str, Any]]:
         """
-        Main extraction flow: fetches HTML, tries a site-specific extractor if available,
-        and falls back to the generic trafilatura-based extractor.
+        Main extraction flow. Uses a precise, site-specific "cutting" method.
+        If no specific rule is found, it falls back to a generic extractor.
         """
         soup = BeautifulSoup(html, 'lxml')
-        domain = urlparse(url).netloc.lower()
-        
-        extracted_data = None
+        domain = urlparse(url).netloc.lower().replace('www.', '')
 
-        # Router for site-specific extractors
-        if 'infomoney.com.br' in domain:
-            selectors = {
-                'title': 'h1.asset-title, h1.entry-title',
-                'content': 'div.article-content, div.entry-content',
-                'junk': ['.advertisement', '.leia-mais', '.box-leia-mais', '.box-newsletter', '.article-related-box']
-            }
-            extracted_data = _extract_site_specific(soup, url, selectors)
-        
-        elif 'estadao.com.br' in domain:
-            selectors = {
-                'title': 'h1.n--noticia__title, h1.entry-title',
-                'content': 'div.n--noticia__content.content, div.entry-content',
-                'junk': ['.veja-tambem', '.publicidade', '.box-relacionadas', '.posts-relacionados']
-            }
-            extracted_data = _extract_site_specific(soup, url, selectors)
+        # --- Site-specific master container selectors ---
+        SITE_SELECTORS = {
+            'lance.com.br': {'tag': 'div', 'attrs': {'class': 'desk-news:max-w-[714px]'}},
+            # Exemplo para GE, conforme sugerido pelo usuário
+            # 'ge.globo.com': {'tag': 'div', 'attrs': {'class': 'materia-conteudo'}},
+        }
 
-        # If a specific extractor ran and succeeded, return its data.
-        if extracted_data:
-            return extracted_data
+        # --- Step 1: Get metadata from the full page ---
+        featured_image_url = self._pick_featured_image(soup, url)
+        title = (og_title.get('content') if (og_title := soup.find('meta', property='og:title')) else None) or (soup.title.string if soup.title else 'No Title Found')
+        excerpt = (meta_desc.get('content') if (meta_desc := soup.find('meta', attrs={'name': 'description'})) else None) or \
+                  (og_desc.get('content') if (og_desc := soup.find('meta', property='og:description')) else '')
         
-        # Otherwise, fall back to the generic method.
-        return self._extract_with_trafilatura(html, url)
+        # Get videos from the full page as a fallback
+        videos_full_page = self._extract_youtube_videos(soup)
+
+        # --- Step 2: Find the master container using site-specific rules ---
+        master_container = None
+        for site_domain, selector_rules in SITE_SELECTORS.items():
+            if site_domain in domain:
+                # Use .get() for safer dictionary access
+                tag = selector_rules.get('tag', 'div')
+                attrs = selector_rules.get('attrs', {})
+                master_container = soup.find(tag, **attrs)
+                if master_container:
+                    logger.info(f"Found master container for {domain} using selector: {selector_rules}")
+                    break
+        
+        # --- Step 3: Process content based on whether a container was found ---
+        if master_container:
+            # PRECISE EXTRACTION
+            logger.info(f"Using PRECISE extraction for {url}.")
+            
+            # Example of cleaning junk from within the container
+            # for junk in master_container.select('.ad-class'): junk.decompose()
+
+            # Extract images and videos from WITHIN the container
+            body_images = [urljoin(url, img.get('src') or img.get('data-src')) for img in master_container.find_all('img') if img.get('src') or img.get('data-src')]
+            videos_in_container = self._extract_youtube_videos(master_container)
+            
+            final_content_html = str(master_container)
+            
+            # Combine videos, prioritizing ones from the container
+            video_ids = set()
+            all_videos = []
+            for v in videos_in_container + videos_full_page:
+                if v['id'] not in video_ids:
+                    all_videos.append(v)
+                    video_ids.add(v['id'])
+
+            return {
+                "title": title.strip(),
+                "content": final_content_html,
+                "excerpt": (excerpt or "").strip(),
+                "featured_image_url": featured_image_url,
+                "images": [img for img in body_images if img != featured_image_url],
+                "videos": all_videos,
+                "source_url": url,
+            }
+        else:
+            # FALLBACK to GENERIC EXTRACTION
+            logger.warning(f"No master container rule found for {domain}. Falling back to generic (trafilatura) extractor.")
+            return self._extract_with_trafilatura(html, url)
