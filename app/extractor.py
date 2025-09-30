@@ -197,7 +197,7 @@ def _passes_min_size(url: str, min_w: int = 600, min_h: int = 315) -> bool:
     return 0.6 <= ar <= 2.2
 
 def is_valid_article_image(url: str) -> bool:
-    if not url or url.startswith('data:'):
+    if not url or url.startswith('data:') :
         return False
     if _is_bad_domain(url):
         return False
@@ -225,12 +225,18 @@ def _abs(u: str, base: str) -> Optional[str]:
         return None
     return urljoin(base, u)
 
-
 def _extract_from_style(style_attr: str) -> Optional[str]:
     if not style_attr:
         return None
-    m = re.search(r"url\((['"]?)(.*?)\1\)", style_attr)
-    return m.group(2) if m else None
+    m = re.search(r"url\((.*?)\)", style_attr)
+    if not m:
+        return None
+    url = m.group(1).strip()
+    if url.startswith("'"') and url.endswith("'"'):
+        return url[1:-1]
+    if url.startswith('"') and url.endswith('"'):
+        return url[1:-1]
+    return url
 
 def _find_article_body(soup: BeautifulSoup) -> BeautifulSoup:
     """
@@ -274,7 +280,7 @@ def collect_images_from_article(soup: BeautifulSoup, base_url: str) -> list[str]
     Coleta URLs de imagens relevantes SOMENTE DO CORPO DO ARTIGO.
     Fontes consideradas:
       - <img> (src, data-*, srcset)
-      - <picture><source srcset="...">
+      - <picture><source srcset="..."/>
       - nós com atributos data-*
       - estilos inline: background-image
       - <figure> contendo <img>
@@ -318,15 +324,15 @@ def collect_images_from_article(soup: BeautifulSoup, base_url: str) -> list[str]
             _push(img.get("src") or img.get("data-src") or img.get("data-original"))
 
     # 3) nós com data-* comuns
-    for node in root.select('[data-img-url], [data-image], [data-src], [data-original]'):
+    for node in root.select('[data-img-url], [data-image], [data-src], [data-original]') :
         cand = node.get("data-img-url") or node.get("data-image") or node.get("data-src") or node.get("data-original")
         _push(cand)
 
     # 4) estilos inline background-image
-    for node in root.select('[style*="background-image"]'):
+    for node in root.select('[style*="background-image"]') :
         _push(_extract_from_style(node.get("style", "")))
 
-    # 5) <figure> com <img> (ou srcset)
+    # 5) <figure> contendo <img> (ou srcset)
     for fig in root.find_all("figure"):
         img = fig.find("img")
         if img:
@@ -638,7 +644,7 @@ class ContentExtractor:
         for tag in soup.find_all(["div", "section", "aside", "ul", "ol"):
             text = " ".join(tag.get_text(separator="\n").split())
             lbl_count = sum(1 for lbl in FORBIDDEN_LABELS
-                            if re.search(rf"(^|\n)\s*{re.escape(lbl)}\s*(\n|:|$)", text, flags=re.I))
+                            if re.search(rf"(^|\n)\s*{re.escape(lbl)}\s*(\n|$|:)", text, flags=re.I))
             if lbl_count >= 2:
                 candidates.append(tag)
         for c in candidates:
@@ -647,7 +653,7 @@ class ContentExtractor:
             except Exception:
                 pass
 
-        for tag in soup.find_all(["p", "li", "span", "h3", "h4"):
+        for tag in soup.find_all(["p", "li", "span", "h3", "h4"]):
             if not tag.parent:
                 continue
             s = (tag.get_text() or "").strip().rstrip(':').strip()
@@ -664,7 +670,7 @@ class ContentExtractor:
         """
         root = _find_article_body(soup)
         converted = 0
-        for div in root.select('div[data-img-url]'):
+        for div in root.select('div[data-img-url]') :
             img_url = div['data-img-url']
             fig = soup.new_tag('figure')
             img = soup.new_tag('img', src=img_url)
@@ -768,7 +774,7 @@ class ContentExtractor:
             vid = self._extract_youtube_id(iframe.get("src", ""), soup=soup)
             if vid:
                 ids.append(vid)
-        for div in soup.select('.w-youtube[id], .youtube[id], [data-youtube-id]'):
+        for div in soup.select('.w-youtube[id], .youtube[id], [data-youtube-id]') :
             vid = div.get("id") or div.get("data-youtube-id")
             if vid:
                 ids.append(vid)
