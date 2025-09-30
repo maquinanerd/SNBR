@@ -155,7 +155,7 @@ def _parse_srcset(srcset: str):
     """Retorna a URL com maior largura declarada em um srcset."""
     best = None
     best_w = -1
-    for part in (srcset or "").split(","):
+    for part in (srcset or "").split(","): 
         part = part.strip()
         if not part:
             continue
@@ -884,17 +884,13 @@ class ContentExtractor:
             logger.error(f"An unexpected error occurred during extraction for {url}: {e}", exc_info=True)
             return None
 
-    def extract(self, url: str) -> Optional[Dict[str, Any]]:
+    def extract(self, html: str, url: str) -> Optional[Dict[str, Any]]:
         """
         Main extraction flow: fetches HTML, tries a site-specific extractor if available,
         and falls back to the generic trafilatura-based extractor.
         """
-        html = self._fetch_html(url)
-        if not html:
-            return None
-
-        domain = urlparse(url).netloc.lower()
         soup = BeautifulSoup(html, 'lxml')
+        domain = urlparse(url).netloc.lower()
         
         extracted_data = None
 

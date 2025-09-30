@@ -32,8 +32,13 @@ from .html_utils import (
 )
 from .ai_processor import AIProcessor
 from bs4 import BeautifulSoup
+from .cleaners import clean_html_for_globo_esporte
 
 logger = logging.getLogger(__name__)
+
+CLEANER_FUNCTIONS = {
+    'globo.com': clean_html_for_globo_esporte,
+}
 
 def _get_article_url(article_data: Dict[str, Any]) -> Optional[str]:
     """
@@ -137,7 +142,22 @@ def run_pipeline_cycle():
                         logger.info(f"Processing article: {article_data.get('title', 'N/A')} (DB ID: {article_db_id}) from {source_id}")
                         db.update_article_status(article_db_id, 'PROCESSING')
                         
-                        extracted_data = extractor.extract(article_url_to_process)
+                        html_content = extractor._fetch_html(article_url_to_process)
+                        if not html_content:
+                            db.update_article_status(article_db_id, 'FAILED', reason="Failed to fetch HTML")
+                            continue
+
+                        soup = BeautifulSoup(html_content, 'lxml')
+                        domain = urlparse(article_url_to_process).netloc.lower()
+                        
+                        # Clean the soup based on the domain
+                        for cleaner_domain, cleaner_func in CLEANER_FUNCTIONS.items():
+                            if cleaner_domain in domain:
+                                soup = cleaner_func(soup)
+                                logger.info(f"Applied cleaner for {cleaner_domain}")
+                                break
+
+                        extracted_data = extractor.extract(str(soup), url=article_url_to_process)
                         if not extracted_data or not extracted_data.get('content'):
                             logger.warning(f"Failed to extract content from {article_data['url']}")
                             db.update_article_status(article_db_id, 'FAILED', reason="Extraction failed")
