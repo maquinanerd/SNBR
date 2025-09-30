@@ -229,23 +229,29 @@ def _abs(u: str, base: str) -> Optional[str]:
 def _extract_from_style(style_attr: str) -> Optional[str]:
     if not style_attr:
         return None
-    m = re.search(r"url\((['\"]?)(.*?)\1\)", style_attr)
+    m = re.search(r"url\((['"]?)(.*?)\1\)", style_attr)
     return m.group(2) if m else None
-
 
 def _find_article_body(soup: BeautifulSoup) -> BeautifulSoup:
     """
     Tenta localizar o nó raiz do corpo do artigo.
-    - Prefere seletores comuns (article body/content)
+    - Prefere a tag <article>
+    - Fallback para seletores comuns (article body/content)
     - Evita nós com classes/ids que casem _BAD_SECTION_RX
-    - Fallback: nó com mais <p> + <figure>
-    """    
+    - Fallback final: nó com mais <p> + <figure>
+    """
+    # 1. Encontre o contêiner principal do artigo
+    article_body = soup.find('article')
+    if article_body:
+        return article_body
+
+    logger.warning("Could not find <article> tag, falling back to other selectors.")
+    
     # Enhanced with user suggestions for more specific content containers
     candidates = soup.select(
         "article .entry-content, article .content, article [itemprop='articleBody'], "
         ".post-content, .single-content, .post-body, "
         "[itemprop='articleBody'], .article-body, .article-content, " # Original selectors
-        "article" # Fallback
     )
     if not candidates:
         candidates = soup.find_all(True)
@@ -262,7 +268,6 @@ def _find_article_body(soup: BeautifulSoup) -> BeautifulSoup:
         if score > best_score:
             best, best_score = c, score
     return best or soup
-
 
 def collect_images_from_article(soup: BeautifulSoup, base_url: str) -> list[str]:
     """
@@ -482,7 +487,7 @@ def _extract_json_ld(soup: BeautifulSoup) -> List[Dict[str, Any]]:
         if script.string:
             try:
                 # Corrigir JSONs malformados com vírgulas extras
-                clean_str = re.sub(r',\s*([}\]])', r'\1', script.string)
+                clean_str = re.sub(r',\s*([\}\]])', r'\1', script.string)
                 data = json.loads(clean_str)
                 if isinstance(data, dict):
                     json_ld_data.append(data)
@@ -630,7 +635,7 @@ class ContentExtractor:
                     pass
 
         candidates = []
-        for tag in soup.find_all(["div", "section", "aside", "ul", "ol"]):
+        for tag in soup.find_all(["div", "section", "aside", "ul", "ol"):
             text = " ".join(tag.get_text(separator="\n").split())
             lbl_count = sum(1 for lbl in FORBIDDEN_LABELS
                             if re.search(rf"(^|\n)\s*{re.escape(lbl)}\s*(\n|:|$)", text, flags=re.I))
@@ -642,7 +647,7 @@ class ContentExtractor:
             except Exception:
                 pass
 
-        for tag in soup.find_all(["p", "li", "span", "h3", "h4"]):
+        for tag in soup.find_all(["p", "li", "span", "h3", "h4"):
             if not tag.parent:
                 continue
             s = (tag.get_text() or "").strip().rstrip(':').strip()
@@ -786,6 +791,9 @@ class ContentExtractor:
         try:
             soup = BeautifulSoup(html, 'lxml')
 
+            # Preserve twitter embeds
+            twitter_embeds = soup.find_all('blockquote', class_='twitter-tweet')
+
             # 1) Tenta extrair metadados de JSON-LD primeiro, pois é a fonte mais confiável
             all_json_ld = _extract_json_ld(soup)
             news_article_schema = _find_news_article_in_json_ld(all_json_ld)
@@ -823,7 +831,7 @@ class ContentExtractor:
             cleaned_html_str = str(soup)
             content_html = trafilatura.extract(
                 cleaned_html_str,
-                include_images=True,
+                include_images=False, # Images are handled separately
                 include_links=True,
                 include_comments=False,
                 include_tables=False,
@@ -832,6 +840,11 @@ class ContentExtractor:
             if not content_html:
                 logger.warning(f"Trafilatura returned empty content for {url}")
                 return None
+
+            # Append twitter embeds back
+            if twitter_embeds:
+                for embed in twitter_embeds:
+                    content_html += str(embed)
 
             # 9) pós-processar corpo
             article_soup = BeautifulSoup(content_html, 'lxml')
@@ -842,6 +855,10 @@ class ContentExtractor:
             other_valid_images = [
                 u for u in body_images if u != featured_image_url
             ]
+
+            # Create figure tags for body images
+            body_images_html_list = [f'<figure><img src="{url}" alt=""><figcaption></figcaption></figure>' for url in other_valid_images]
+
 
             logger.info(f"Selected featured image: {featured_image_url}. Found {len(other_valid_images)} other valid images.")
 
@@ -855,7 +872,7 @@ class ContentExtractor:
                 "content": final_content_html,
                 "excerpt": (excerpt or "").strip(),
                 "featured_image_url": featured_image_url,
-                "images": other_valid_images,
+                "images": body_images_html_list,
                 "videos": videos,
                 "source_url": url,
                 "schema_original": news_article_schema # Passa o schema extraído adiante
