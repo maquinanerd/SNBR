@@ -187,6 +187,13 @@ class AIProcessor:
             elif clean_text.startswith("```"):
                 clean_text = clean_text[3:-3].strip()
 
+            # Debug: Save raw response to a file
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            with open(debug_dir / f"ai_response_{timestamp}.json", "w", encoding="utf-8") as f:
+                f.write(clean_text)
+
             data = json.loads(clean_text)
 
             if not isinstance(data, dict):
