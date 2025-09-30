@@ -232,7 +232,7 @@ def _extract_from_style(style_attr: str) -> Optional[str]:
     if not m:
         return None
     url = m.group(1).strip()
-    if url.startswith("'"') and url.endswith("'"'):
+    if url.startswith("'") and url.endswith("'"):
         return url[1:-1]
     if url.startswith('"') and url.endswith('"'):
         return url[1:-1]
@@ -641,7 +641,7 @@ class ContentExtractor:
                     pass
 
         candidates = []
-        for tag in soup.find_all(["div", "section", "aside", "ul", "ol"):
+        for tag in soup.find_all(["div", "section", "aside", "ul", "ol"]):
             text = " ".join(tag.get_text(separator="\n").split())
             lbl_count = sum(1 for lbl in FORBIDDEN_LABELS
                             if re.search(rf"(^|\n)\s*{re.escape(lbl)}\s*(\n|$|:)", text, flags=re.I))
@@ -692,42 +692,77 @@ class ContentExtractor:
 
     def _pick_featured_image(self, soup: BeautifulSoup, base_url: str) -> Optional[str]:
         """
-        Picks the featured image with a clear priority:
-        1. og:image / og:image:secure_url
-        2. twitter:image
-        3. First valid <img> inside <article> or <figure>
-        It also filters out known tracker/placeholder domains.
+        Encontra a melhor imagem destacada de um artigo seguindo uma ordem de prioridade.
+        1. Metatag Open Graph (og:image) - Mais confiável.
+        2. Dados Estruturados JSON-LD - Muito confiável.
+        3. Maior imagem dentro da tag <article> - Bom fallback.
         """
-        # Helper to check domain and basic validity
-        def is_valid_source_url(url: Optional[str]) -> bool:
-            if not url or not url.strip().startswith(("http://", "https")):
-                return False
+
+        # --- Prioridade 1: Metatag Open Graph (og:image) ---
+        # Quase todos os sites usam isso para compartilhar em redes sociais.
+        og_image = soup.find('meta', property='og:image')
+        if og_image and og_image.get('content'):
+            logger.info("✅ Imagem encontrada com sucesso via Open Graph (og:image).")
+            return urljoin(base_url, og_image['content'])
+
+        # --- Prioridade 2: Dados Estruturados (JSON-LD) ---
+        # Muitos sites usam isso para SEO e para o Google.
+        json_ld_script = soup.find('script', type='application/ld+json')
+        if json_ld_script and json_ld_script.string:
             try:
-                host = urlparse(url).netloc.lower()
-                if not host or any(bad_domain in host for bad_domain in BAD_IMAGE_DOMAINS):
-                    return False
-            except Exception:
-                return False
-            return True
+                data = json.loads(json_ld_script.string)
+                
+                # O JSON-LD pode ser uma lista (com @graph) ou um objeto.
+                if isinstance(data, list):
+                    data = data[0]
+                
+                image_data = data.get('image')
+                if image_data:
+                    # A imagem pode ser uma lista, um objeto ou uma string.
+                    image_url = None
+                    if isinstance(image_data, list):
+                        image_data = image_data[0]
+                    
+                    if isinstance(image_data, dict) and image_data.get('url'):
+                        image_url = image_data['url']
+                    elif isinstance(image_data, str):
+                        image_url = image_data
+                    
+                    if image_url:
+                        logger.info("✅ Imagem encontrada com sucesso via JSON-LD.")
+                        return urljoin(base_url, image_url)
 
-        # 1) og:image / og:image:secure_url
-        for prop in ("og:image", "og:image:secure_url"):
-            tag = soup.find("meta", property=prop)
-            if tag and is_valid_source_url(tag.get("content")):
-                return urljoin(base_url, tag["content"])
+            except (json.JSONDecodeError, KeyError, TypeError, IndexError):
+                # Ignora erros se o JSON-LD estiver mal formatado ou não tiver a imagem.
+                pass
 
-        # 2) twitter:image
-        tag = soup.find("meta", attrs={"name": "twitter:image"})
-        if tag and is_valid_source_url(tag.get("content")):
-            return urljoin(base_url, tag["content"])
+        # --- Prioridade 3: Maior imagem dentro da tag <article> (Fallback) ---
+        # Se os métodos acima falharem, procura a maior imagem dentro do corpo do artigo.
+        article_tag = soup.find('article')
+        if article_tag:
+            max_area = 0
+            best_image_url = None
+            for img in article_tag.find_all('img'):
+                src = img.get('src') or img.get('data-src')
+                if not src:
+                    continue
 
-        # 3) First <figure><img> or <article><img>
-        for img in soup.select("article img, .content img, figure img"):
-            src = img.get("data-src") or img.get("src")
-            if is_valid_source_url(src):
-                return urljoin(base_url, src)
-        
-        logger.warning(f"Could not find a valid featured image for {base_url}")
+                width_str = img.get('width', '0')
+                height_str = img.get('height', '0')
+                # Garante que width e height são numéricos antes de converter
+                if width_str.isdigit() and height_str.isdigit():
+                    width = int(width_str)
+                    height = int(height_str)
+                    area = width * height
+                    if area > max_area:
+                        max_area = area
+                        best_image_url = src
+            
+            if best_image_url:
+                logger.warning("⚠️ Imagem encontrada via método de fallback (maior imagem no artigo).")
+                return urljoin(base_url, best_image_url)
+
+        logger.warning(f"❌ Nenhuma imagem destacada confiável foi encontrada para {base_url}.")
         return None
 
     def _extract_youtube_id(self, url: str, soup: Optional[BeautifulSoup] = None) -> Optional[str]:
