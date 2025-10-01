@@ -978,13 +978,14 @@ class ContentExtractor:
 
     def _clean_html_for_ge(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
-        VERSÃO RESILIENTE para o GE - Tenta múltiplos seletores conhecidos.
+        VERSÃO RESILIENTE E FINALÍSSIMA v2 para o GE.
+        Tenta múltiplos seletores e remove blocos indesejados, incluindo o do Cartola FC.
         """
-        # Lista de possíveis seletores para o contêiner principal do GE, em ordem de prioridade.
+        # 1. Encontrar o contêiner principal do artigo (lógica resiliente).
         possible_selectors = [
             {'tag': 'div', 'class_': 'materia-conteudo'},
-            {'tag': 'article', 'class_': 'post-content'}, # Outro seletor comum em blogs do GE
-            {'tag': 'div', 'class_': 'mc-article-body'}, # O seletor "pai" que já discutimos
+            {'tag': 'article', 'class_': 'post-content'},
+            {'tag': 'div', 'class_': 'mc-article-body'},
         ]
 
         main_container = None
@@ -992,27 +993,44 @@ class ContentExtractor:
             main_container = soup.find(selector['tag'], class_=selector.get('class_'))
             if main_container:
                 logger.info(f"INFO (GE): Contêiner principal encontrado com o seletor: {selector}")
-                break # Para no primeiro que encontrar
+                break
 
         if not main_container:
             logger.error("ERRO CRÍTICO (GE): Nenhum contêiner principal válido foi encontrado.")
             return None
 
-        # A partir daqui, a lógica de limpeza agressiva continua a mesma
+        # 2. LISTA DE EXTERMÍNIO: Todos os seletores de blocos indesejados.
         selectors_to_destroy = [
+            # Blocos de vídeo
             {'tag': 'div', 'class_': 'video-player'},
             {'tag': 'article', 'class_': 'content-video'},
             {'tag': 'div', 'class_': 'show-multicontent-playlist-container'},
+
+            # Blocos de "Relacionados"
             {'tag': 'div', 'class_': 'related-materia'},
+            
+            # NOVO BLOCO DO CARTOLA FC (MAIS ESCALADOS)
+            {'tag': 'div', 'id': 'gm-widget-mais-escalados-root'},
         ]
 
+        logger.info("INFO (GE): Iniciando limpeza agressiva de blocos indesejados...")
         for selector in selectors_to_destroy:
-            for element in main_container.find_all(selector['tag'], class_=selector.get('class_')):
+            # Busca tanto por 'class_' quanto por 'id'
+            elements_to_remove = main_container.find_all(
+                selector['tag'], 
+                class_=selector.get('class_'), 
+                id=selector.get('id')
+            )
+            
+            for element in elements_to_remove:
+                logger.info(f"INFO (GE): Removendo bloco indesejado com seletor: {selector}")
                 element.decompose()
 
+        # Remove scripts e styles para limpeza final.
         for element in main_container.find_all(['script', 'style']):
             element.decompose()
 
+        logger.info("INFO (GE): Limpeza concluída. Retornando HTML final.")
         return main_container
 
     def extract(self, html: str, url: str) -> Optional[Dict[str, Any]]:
