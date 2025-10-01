@@ -927,41 +927,60 @@ class ContentExtractor:
 
     def _clean_html_for_lance(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
-        VERSÃO CHEGA! - Foco total em limpar o <article> de qualquer "Relacionado".
-        Esta é a única função que você precisa para o Lance!.
+        VERSÃO ULTRA FINAL para o LANCE!
+        Destrói a barra lateral, os "Relacionadas" internos,
+        o breadcrumb e a caixa de autor.
         """
-        # 1. ISOLAR o contêiner <article>. Tudo fora dele é ignorado.
+        # ETAPA 1: DESTRUIR A BARRA LATERAL (SIDEBAR) INTEIRA
+        sidebar = soup.find('aside', class_='tab-m:hidden')
+        if sidebar:
+            logger.info("INFO (Lance!): Barra lateral ('aside') encontrada e DESTRUÍDA.")
+            sidebar.decompose()
+
+        # ETAPA 2: ISOLAR O CONTÊINER SEMÂNTICO <article>
         article_container = soup.find('article')
         if not article_container:
             logger.error("ERRO CRÍTICO (Lance!): A tag <article> principal não foi encontrada.")
             return None
 
-        # 2. CAÇAR E DESTRUIR QUALQUER "RELACIONADAS" DENTRO DO <article>.
-        # Isso cobre o caso de "Relacionadas" no meio do texto.
-        # Usamos ['h2', 'h3'] para pegar as duas variações de título.
-        related_titles = article_container.find_all(['h2', 'h3'], string='Relacionadas')
+        # ETAPA 3: LIMPEZA AGRESSIVA DENTRO DO <article>
         
+        # Remove o breadcrumb (caminho de navegação com ícones)
+        breadcrumb = article_container.find('div', class_='hideScrollbar')
+        if breadcrumb:
+            logger.info("INFO (Lance!): Breadcrumb (navegação com ícones) encontrado e DESTRUÍDO.")
+            breadcrumb.decompose()
+
+        # Remove a caixa de biografia do autor (com a foto)
+        author_box = article_container.find('div', class_='scrollbarAuthor')
+        if author_box:
+            # A caixa do autor está dentro de um div pai que também queremos remover.
+            parent_div = author_box.find_parent('div', class_='py-2')
+            if parent_div:
+                 logger.info("INFO (Lance!): Caixa de biografia do autor encontrada e DESTRUÍDA.")
+                 parent_div.decompose()
+
+        # Remove qualquer seção "Relacionadas" interna
+        related_titles = article_container.find_all(['h2', 'h3'], string='Relacionadas')
         if related_titles:
-            logger.info(f"INFO (Lance!): DESTRUINDO {len(related_titles)} seções 'Relacionadas' encontradas dentro do <article>.")
+            logger.info(f"INFO (Lance!): DESTRUINDO {len(related_titles)} seções 'Relacionadas' internas.")
             for title in related_titles:
-                # Sobe na árvore até encontrar a <section> pai e a destrói.
                 parent_section = title.find_parent('section')
                 if parent_section:
                     parent_section.decompose()
-
-        # 3. LIMPEZA FINAL DE SCRIPTS E LIXO TÉCNICO.
-        for element in article_container.find_all(['script', 'style', 'aside']):
+    
+        # Limpeza final de scripts e estilos
+        for element in article_container.find_all(['script', 'style']):
             element.decompose()
 
-        # 4. Retorna o <article> completamente limpo e seguro.
+        # Retorna o <article> completamente limpo.
         return article_container
 
     def _clean_html_for_ge(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
-        V3 - Abordagem de "lista de inclusão" refinada.
-        Captura parágrafos, figuras de imagem (<figure>) E os divs de mídia (<div>) válidos.
+        VERSÃO FINALÍSSIMA para o GE - Usa uma lista de seletores para destruição em massa.
+        É a versão mais robusta e fácil de manter.
         """
-        logger.info("Applying 'ge.globo.com' inclusion-list extractor (v3).")
         # 1. Encontrar o contêiner principal do artigo.
         main_container = soup.find('div', class_='materia-conteudo')
 
@@ -969,32 +988,31 @@ class ContentExtractor:
             logger.error("CRITICAL ERROR (GE): Contêiner 'materia-conteudo' não encontrado.")
             return None
 
-        # 2. Criar um novo contêiner para guardar apenas os elementos que queremos.
-        new_clean_container = soup.new_tag('div')
+        # 2. LISTA DE EXTERMÍNIO: Defina aqui todos os seletores de blocos indesejados.
+        # Cada item é um dicionário com a 'tag' e a 'class_'.
+        selectors_to_destroy = [
+            {'tag': 'div', 'class_': 'video-player'},
+            {'tag': 'article', 'class_': 'content-video'},
+            {'tag': 'div', 'class_': 'show-multicontent-playlist'},
+            {'tag': 'div', 'class_': 'show-multicontent-playlist-container'}, # O que você acabou de encontrar
+            {'tag': 'div', 'class_': 'related-materia'},
+        ]
 
-        # 3. Iterar sobre todos os filhos que nos interessam (p, figure e div).
-        for element in main_container.find_all(['p', 'figure', 'div']):
-            
-            classes = element.get('class', [])
+        logger.info("INFO (GE): Iniciando limpeza agressiva de blocos indesejados...")
+        for selector in selectors_to_destroy:
+            # Encontra todos os elementos que correspondem ao seletor e os destrói.
+            for element in main_container.find_all(selector['tag'], class_=selector['class_']):
+                logger.info(f"INFO (GE): Removendo bloco '{selector['class_']}'.")
+                element.decompose()
 
-            # Pega todos os parágrafos de texto
-            if element.name == 'p':
-                new_clean_container.append(element)
-            
-            # Pega as figuras de imagem do TIPO 1
-            elif element.name == 'figure' and 'content-media-figure' in classes:
-                new_clean_container.append(element)
-            
-            # Pega os contêineres de mídia do TIPO 2 (NOVA REGRA)
-            elif element.name == 'div' and 'content-media-container' in classes and 'glb-skeleton-box' in classes:
-                new_clean_container.append(element)
+        # Remove scripts e styles para uma limpeza final.
+        for element in main_container.find_all(['script', 'style']):
+            element.decompose()
 
-        if not new_clean_container.contents:
-            logger.warning("WARNING (GE): Nenhum conteúdo válido (p, figure, div) foi encontrado.")
-            return None
+        # 3. RETORNA O HTML 100% LIMPO
+        logger.info("INFO (GE): Limpeza concluída. Retornando HTML final.")
         
-        # 4. Retorna o novo contêiner com o HTML 100% limpo.
-        return new_clean_container
+        return main_container
 
     def extract(self, html: str, url: str) -> Optional[Dict[str, Any]]:
         """
