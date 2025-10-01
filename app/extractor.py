@@ -925,56 +925,59 @@ class ContentExtractor:
             logger.error(f"An unexpected error occurred during extraction for {url}: {e}", exc_info=True)
             return None
 
-    def _clean_html_for_lance(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
+    def _clean_html_for_lance_definitivo(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
-        VERSÃO ULTRA FINAL para o LANCE!
-        Destrói a barra lateral, os "Relacionadas" internos,
-        o breadcrumb e a caixa de autor.
+        VERSÃO DEFINITIVA PARA O LANCE! - Abordagem "Whitelist" Pura.
+        Esta função IGNORA TUDO por padrão e reconstrói o artigo do zero, pegando APENAS
+        os elementos que queremos: <p>, <h2>, <figure> e <blockquote> de Twitter.
         """
-        # ETAPA 1: DESTRUIR A BARRA LATERAL (SIDEBAR) INTEIRA
-        sidebar = soup.find('aside', class_='tab-m:hidden')
-        if sidebar:
-            logger.info("INFO (Lance!): Barra lateral ('aside') encontrada e DESTRUÍDA.")
-            sidebar.decompose()
-
-        # ETAPA 2: ISOLAR O CONTÊINER SEMÂNTICO <article>
+        # 1. Isolar o contêiner <article>. Tudo que está fora é 100% ignorado.
         article_container = soup.find('article')
         if not article_container:
             logger.error("ERRO CRÍTICO (Lance!): A tag <article> principal não foi encontrada.")
             return None
 
-        # ETAPA 3: LIMPEZA AGRESSIVA DENTRO DO <article>
-        
-        # Remove o breadcrumb (caminho de navegação com ícones)
-        breadcrumb = article_container.find('div', class_='hideScrollbar')
-        if breadcrumb:
-            logger.info("INFO (Lance!): Breadcrumb (navegação com ícones) encontrado e DESTRUÍDO.")
-            breadcrumb.decompose()
+        # 2. WHITELIST: Criar um novo contêiner para os elementos válidos.
+        new_article = soup.new_tag('article')
 
-        # Remove a caixa de biografia do autor (com a foto)
-        author_box = article_container.find('div', class_='scrollbarAuthor')
-        if author_box:
-            # A caixa do autor está dentro de um div pai que também queremos remover.
-            parent_div = author_box.find_parent('div', class_='py-2')
-            if parent_div:
-                 logger.info("INFO (Lance!): Caixa de biografia do autor encontrada e DESTRUÍDA.")
-                 parent_div.decompose()
+        # 3. Iterar sobre todos os elementos DENTRO do <article>
+        # e capturar apenas o que está na nossa lista de permissão.
+        elements_found = False
+        for element in article_container.find_all(['p', 'h2', 'figure', 'blockquote']):
+            
+            # REGRA 1: Pega qualquer parágrafo de texto.
+            if element.name == 'p':
+                new_article.append(element)
+                elements_found = True
+                continue
 
-        # Remove qualquer seção "Relacionadas" interna
-        related_titles = article_container.find_all(['h2', 'h3'], string='Relacionadas')
-        if related_titles:
-            logger.info(f"INFO (Lance!): DESTRUINDO {len(related_titles)} seções 'Relacionadas' internas.")
-            for title in related_titles:
-                parent_section = title.find_parent('section')
-                if parent_section:
-                    parent_section.decompose()
-    
-        # Limpeza final de scripts e estilos
-        for element in article_container.find_all(['script', 'style']):
-            element.decompose()
+            # REGRA 2: Pega qualquer subtítulo.
+            if element.name == 'h2':
+                new_article.append(element)
+                elements_found = True
+                continue
 
-        # Retorna o <article> completamente limpo.
-        return article_container
+            # REGRA 3: Pega qualquer <figure> (que contém as imagens do artigo).
+            # Adicionamos uma segurança para não pegar 'figures' de vídeo players, se houver.
+            if element.name == 'figure':
+                if not element.find('div', class_='video-player-placeholder'):
+                     new_article.append(element)
+                     elements_found = True
+                continue
+                
+            # REGRA 4: Pega o embed do Twitter.
+            if element.name == 'blockquote' and 'twitter-tweet' in element.get('class', []):
+                logger.info("INFO (Lance!): Embed de Twitter encontrado e MANTIDO.")
+                new_article.append(element)
+                elements_found = True
+                continue
+
+        if not elements_found:
+            logger.warning("AVISO (Lance!): Nenhum conteúdo válido (p, h2, figure, blockquote) foi encontrado.")
+            return None
+            
+        # 4. Retorna o novo <article> contendo apenas os elementos bons.
+        return new_article
 
     def _clean_html_for_ge(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
