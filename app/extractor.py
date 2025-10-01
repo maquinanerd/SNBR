@@ -953,25 +953,36 @@ class ContentExtractor:
 
     def _clean_html_for_ge(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
-        Função de limpeza robusta, ESPECÍFICA para o site Globo Esporte.
+        V3 - Abordagem de "lista de inclusão".
+        Esta função captura APENAS os parágrafos de texto e as figuras de imagem corretas.
         """
-        logger.info("Applying 'ge.globo.com' specific extractor.")
-        master_container = soup.find('div', class_='materia-conteudo')
+        logger.info("Applying 'ge.globo.com' inclusion-list extractor (v3).")
+        main_container = soup.find('div', class_='materia-conteudo')
 
-        if not master_container:
-            logger.error("ERROR (GE): Master container ('materia-conteudo') not found.")
+        if not main_container:
+            logger.error("CRITICAL ERROR (GE): Container 'materia-conteudo' not found.")
             return None
+
+        # Create a new div to hold the clean content
+        new_clean_container = soup.new_tag('div')
+        
+        # Find ALL <p> and <figure> tags within the container
+        for element in main_container.find_all(['p', 'figure']):
             
-        # GE-specific cleaning: remove video player blocks
-        for video_player in master_container.find_all('div', class_='video-player'):
-            logger.info("INFO: Removing 'video-player' block from GE container.")
-            video_player.decompose()
+            # If the element is a <figure>, only add it if it's a valid image figure
+            if element.name == 'figure':
+                if 'content-media-figure' in element.get('class', []):
+                    new_clean_container.append(element)
+            
+            # If the element is a <p>, always add it
+            elif element.name == 'p':
+                new_clean_container.append(element)
 
-        # Final cleanup of scripts and styles
-        for element in master_container.find_all(['script', 'style']):
-            element.decompose()
-
-        return master_container
+        if not new_clean_container.contents:
+            logger.warning("WARNING (GE): No valid paragraphs or figures were found in the container.")
+            return None
+        
+        return new_clean_container
 
     def extract(self, html: str, url: str) -> Optional[Dict[str, Any]]:
         """
