@@ -978,40 +978,41 @@ class ContentExtractor:
 
     def _clean_html_for_ge(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
-        VERSÃO FINALÍSSIMA para o GE - Usa uma lista de seletores para destruição em massa.
-        É a versão mais robusta e fácil de manter.
+        VERSÃO RESILIENTE para o GE - Tenta múltiplos seletores conhecidos.
         """
-        # 1. Encontrar o contêiner principal do artigo.
-        main_container = soup.find('div', class_='materia-conteudo')
+        # Lista de possíveis seletores para o contêiner principal do GE, em ordem de prioridade.
+        possible_selectors = [
+            {'tag': 'div', 'class_': 'materia-conteudo'},
+            {'tag': 'article', 'class_': 'post-content'}, # Outro seletor comum em blogs do GE
+            {'tag': 'div', 'class_': 'mc-article-body'}, # O seletor "pai" que já discutimos
+        ]
+
+        main_container = None
+        for selector in possible_selectors:
+            main_container = soup.find(selector['tag'], class_=selector.get('class_'))
+            if main_container:
+                logger.info(f"INFO (GE): Contêiner principal encontrado com o seletor: {selector}")
+                break # Para no primeiro que encontrar
 
         if not main_container:
-            logger.error("CRITICAL ERROR (GE): Contêiner 'materia-conteudo' não encontrado.")
+            logger.error("ERRO CRÍTICO (GE): Nenhum contêiner principal válido foi encontrado.")
             return None
 
-        # 2. LISTA DE EXTERMÍNIO: Defina aqui todos os seletores de blocos indesejados.
-        # Cada item é um dicionário com a 'tag' e a 'class_'.
+        # A partir daqui, a lógica de limpeza agressiva continua a mesma
         selectors_to_destroy = [
             {'tag': 'div', 'class_': 'video-player'},
             {'tag': 'article', 'class_': 'content-video'},
-            {'tag': 'div', 'class_': 'show-multicontent-playlist'},
-            {'tag': 'div', 'class_': 'show-multicontent-playlist-container'}, # O que você acabou de encontrar
+            {'tag': 'div', 'class_': 'show-multicontent-playlist-container'},
             {'tag': 'div', 'class_': 'related-materia'},
         ]
 
-        logger.info("INFO (GE): Iniciando limpeza agressiva de blocos indesejados...")
         for selector in selectors_to_destroy:
-            # Encontra todos os elementos que correspondem ao seletor e os destrói.
-            for element in main_container.find_all(selector['tag'], class_=selector['class_']):
-                logger.info(f"INFO (GE): Removendo bloco '{selector['class_']}'.")
+            for element in main_container.find_all(selector['tag'], class_=selector.get('class_')):
                 element.decompose()
 
-        # Remove scripts e styles para uma limpeza final.
         for element in main_container.find_all(['script', 'style']):
             element.decompose()
 
-        # 3. RETORNA O HTML 100% LIMPO
-        logger.info("INFO (GE): Limpeza concluída. Retornando HTML final.")
-        
         return main_container
 
     def extract(self, html: str, url: str) -> Optional[Dict[str, Any]]:
