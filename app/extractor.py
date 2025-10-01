@@ -953,35 +953,42 @@ class ContentExtractor:
 
     def _clean_html_for_ge(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
-        V3 - Abordagem de "lista de inclusão".
-        Esta função captura APENAS os parágrafos de texto e as figuras de imagem corretas.
+        V3 - Abordagem de "lista de inclusão" refinada.
+        Captura parágrafos, figuras de imagem (<figure>) E os divs de mídia (<div>) válidos.
         """
         logger.info("Applying 'ge.globo.com' inclusion-list extractor (v3).")
+        # 1. Encontrar o contêiner principal do artigo.
         main_container = soup.find('div', class_='materia-conteudo')
 
         if not main_container:
-            logger.error("CRITICAL ERROR (GE): Container 'materia-conteudo' not found.")
+            logger.error("CRITICAL ERROR (GE): Contêiner 'materia-conteudo' não encontrado.")
             return None
 
-        # Create a new div to hold the clean content
+        # 2. Criar um novo contêiner para guardar apenas os elementos que queremos.
         new_clean_container = soup.new_tag('div')
-        
-        # Find ALL <p> and <figure> tags within the container
-        for element in main_container.find_all(['p', 'figure']):
+
+        # 3. Iterar sobre todos os filhos que nos interessam (p, figure e div).
+        for element in main_container.find_all(['p', 'figure', 'div']):
             
-            # If the element is a <figure>, only add it if it's a valid image figure
-            if element.name == 'figure':
-                if 'content-media-figure' in element.get('class', []):
-                    new_clean_container.append(element)
+            classes = element.get('class', [])
+
+            # Pega todos os parágrafos de texto
+            if element.name == 'p':
+                new_clean_container.append(element)
             
-            # If the element is a <p>, always add it
-            elif element.name == 'p':
+            # Pega as figuras de imagem do TIPO 1
+            elif element.name == 'figure' and 'content-media-figure' in classes:
+                new_clean_container.append(element)
+            
+            # Pega os contêineres de mídia do TIPO 2 (NOVA REGRA)
+            elif element.name == 'div' and 'content-media-container' in classes and 'glb-skeleton-box' in classes:
                 new_clean_container.append(element)
 
         if not new_clean_container.contents:
-            logger.warning("WARNING (GE): No valid paragraphs or figures were found in the container.")
+            logger.warning("WARNING (GE): Nenhum conteúdo válido (p, figure, div) foi encontrado.")
             return None
         
+        # 4. Retorna o novo contêiner com o HTML 100% limpo.
         return new_clean_container
 
     def extract(self, html: str, url: str) -> Optional[Dict[str, Any]]:
