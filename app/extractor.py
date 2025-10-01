@@ -1054,7 +1054,7 @@ class ContentExtractor:
         # --- Step 2: Route to the correct site-specific cleaner ---
         cleaned_container = None
         if 'lance.com.br' in domain:
-            cleaned_container = self._clean_html_for_lance(soup)
+            cleaned_container = self._clean_html_for_lance_definitivo(soup)
         elif 'ge.globo.com' in domain:
             cleaned_container = self._clean_html_for_ge(soup)
         
