@@ -927,57 +927,60 @@ class ContentExtractor:
 
     def _clean_html_for_lance_definitivo(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
-        VERSÃO DEFINITIVA PARA O LANCE! - Abordagem "Whitelist" Pura.
-        Esta função IGNORA TUDO por padrão e reconstrói o artigo do zero, pegando APENAS
-        os elementos que queremos: <p>, <h2>, <figure> e <blockquote> de Twitter.
+        VERSÃO FINAL v3 para o LANCE! - Whitelist Hiper Específico.
+        Ignora <figure> que contêm ícones .svg e mantém embeds do Twitter.
         """
-        # 1. Isolar o contêiner <article>. Tudo que está fora é 100% ignorado.
+        # 1. Isolar o <article>. Tudo fora dele é 100% ignorado.
         article_container = soup.find('article')
         if not article_container:
             logger.error("ERRO CRÍTICO (Lance!): A tag <article> principal não foi encontrada.")
             return None
 
-        # 2. WHITELIST: Criar um novo contêiner para os elementos válidos.
-        new_article = soup.new_tag('article')
+        # 2. Destruir a barra lateral (se existir) para garantir.
+        sidebar = soup.find('aside', class_='tab-m:hidden')
+        if sidebar:
+            sidebar.decompose()
 
-        # 3. Iterar sobre todos os elementos DENTRO do <article>
-        # e capturar apenas o que está na nossa lista de permissão.
-        elements_found = False
+        # 3. Lista de elementos válidos que vamos extrair.
+        good_elements = []
+
+        # 4. Iterar e capturar apenas o que está na nossa lista de permissão.
         for element in article_container.find_all(['p', 'h2', 'figure', 'blockquote']):
             
-            # REGRA 1: Pega qualquer parágrafo de texto.
-            if element.name == 'p':
-                new_article.append(element)
-                elements_found = True
+            # Pega parágrafos e subtítulos
+            if element.name in ['p', 'h2']:
+                good_elements.append(str(element))
                 continue
 
-            # REGRA 2: Pega qualquer subtítulo.
-            if element.name == 'h2':
-                new_article.append(element)
-                elements_found = True
-                continue
-
-            # REGRA 3: Pega qualquer <figure> (que contém as imagens do artigo).
-            # Adicionamos uma segurança para não pegar 'figures' de vídeo players, se houver.
-            if element.name == 'figure':
-                if not element.find('div', class_='video-player-placeholder'):
-                     new_article.append(element)
-                     elements_found = True
-                continue
-                
-            # REGRA 4: Pega o embed do Twitter.
+            # Pega o embed do Twitter
             if element.name == 'blockquote' and 'twitter-tweet' in element.get('class', []):
                 logger.info("INFO (Lance!): Embed de Twitter encontrado e MANTIDO.")
-                new_article.append(element)
-                elements_found = True
+                good_elements.append(str(element))
+                continue
+                
+            # REGRA REFINADA PARA <figure>
+            if element.name == 'figure':
+                # Procura por uma tag <img> dentro da figura
+                img_tag = element.find('img')
+                
+                # Se não houver tag <img>, ou se a imagem for um ícone .svg, IGNORA a figura.
+                if not img_tag or (img_tag.get('src') and img_tag.get('src').endswith('.svg')):
+                    logger.info(f"INFO (Lance!): Ignorando <figure> de ícone SVG: {img_tag.get('src') if img_tag else 'Figura vazia'}")
+                    continue # Pula para o próximo elemento do loop
+
+                # Se passou no teste, é uma figura de conteúdo válida.
+                good_elements.append(str(element))
                 continue
 
-        if not elements_found:
-            logger.warning("AVISO (Lance!): Nenhum conteúdo válido (p, h2, figure, blockquote) foi encontrado.")
+        if not good_elements:
+            logger.warning("AVISO (Lance!): Nenhum conteúdo válido foi encontrado.")
             return None
             
-        # 4. Retorna o novo <article> contendo apenas os elementos bons.
-        return new_article
+        # 5. Juntar apenas os elementos bons para formar o HTML final.
+        final_html = "".join(good_elements)
+        
+        # 6. Retorna o novo <article> contendo apenas os elementos bons.
+        return BeautifulSoup(final_html, 'lxml')
 
     def _clean_html_for_ge(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
