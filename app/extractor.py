@@ -927,32 +927,33 @@ class ContentExtractor:
 
     def _clean_html_for_lance(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
-        VERSÃO EXTERMINADOR - Simples e Direta.
-        Encontra QUALQUER seção de "Relacionadas" na página e a destrói.
-        Depois, isola o <article> para garantir.
+        VERSÃO CHEGA! - Foco total em limpar o <article> de qualquer "Relacionado".
+        Esta é a única função que você precisa para o Lance!.
         """
-        logger.info("Applying 'lance.com.br' exterminator extractor.")
-        # ETAPA 1: CAÇAR E DESTRUIR TODAS AS SEÇÕES "RELACIONADAS"
-        related_titles = soup.find_all(['h2', 'h3'], string='Relacionadas')
+        # 1. ISOLAR o contêiner <article>. Tudo fora dele é ignorado.
+        article_container = soup.find('article')
+        if not article_container:
+            logger.error("ERRO CRÍTICO (Lance!): A tag <article> principal não foi encontrada.")
+            return None
+
+        # 2. CAÇAR E DESTRUIR QUALQUER "RELACIONADAS" DENTRO DO <article>.
+        # Isso cobre o caso de "Relacionadas" no meio do texto.
+        # Usamos ['h2', 'h3'] para pegar as duas variações de título.
+        related_titles = article_container.find_all(['h2', 'h3'], string='Relacionadas')
         
         if related_titles:
-            logger.info(f"INFO (Lance!): Found and DESTROYING {len(related_titles)} 'Relacionadas' sections.")
+            logger.info(f"INFO (Lance!): DESTRUINDO {len(related_titles)} seções 'Relacionadas' encontradas dentro do <article>.")
             for title in related_titles:
+                # Sobe na árvore até encontrar a <section> pai e a destrói.
                 parent_section = title.find_parent('section')
                 if parent_section:
                     parent_section.decompose()
 
-        # ETAPA 2: ISOLAR O <article> PARA DUPLA GARANTIA
-        article_container = soup.find('article')
-        if not article_container:
-            logger.error("CRITICAL ERROR (Lance!): The main <article> tag was not found.")
-            return None
-
-        # ETAPA 3: LIMPEZA FINAL DE SCRIPTS DENTRO DO <article>
-        for element in article_container.find_all(['script', 'style']):
+        # 3. LIMPEZA FINAL DE SCRIPTS E LIXO TÉCNICO.
+        for element in article_container.find_all(['script', 'style', 'aside']):
             element.decompose()
 
-        # Retorna o HTML do <article> completamente limpo.
+        # 4. Retorna o <article> completamente limpo e seguro.
         return article_container
 
     def _clean_html_for_ge(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
