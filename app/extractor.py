@@ -927,38 +927,33 @@ class ContentExtractor:
 
     def _clean_html_for_lance(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
-        VERSÃO FINAL E DEFINITIVA para o Lance!
-        Remove agressivamente a barra lateral E as seções 'Relacionadas' internas.
+        VERSÃO EXTERMINADOR - Simples e Direta.
+        Encontra QUALQUER seção de "Relacionadas" na página e a destrói.
+        Depois, isola o <article> para garantir.
         """
-        logger.info("Applying 'lance.com.br' definitive extractor (double attack).")
-        # ETAPA 1: DESTRUIR A BARRA LATERAL (SIDEBAR) INTEIRA
-        sidebar = soup.find('aside', class_='tab-m:hidden')
-        if sidebar:
-            logger.info("INFO (Lance!): Sidebar found and removed.")
-            sidebar.decompose()
-
-        # ETAPA 2: ISOLAR O "CONTÊINER MESTRE" DO CONTEÚDO RESTANTE
-        master_container = soup.find('div', class_='desk-news:max-w-[714px]')
-        if not master_container:
-            logger.error("ERROR (Lance!): Master container not found after removing sidebar.")
-            return None
-
-        # ETAPA 3: LIMPEZA INTERNA FINAL NO CONTÊINER
-        # Remove qualquer seção "Relacionadas" que possa estar DENTRO do conteúdo principal.
-        related_titles_inside = master_container.find_all('h2', string='Relacionadas')
-        if related_titles_inside:
-            logger.info(f"INFO (Lance!): Removing {len(related_titles_inside)} 'Relacionadas' sections from within the content.")
-            for title in related_titles_inside:
+        logger.info("Applying 'lance.com.br' exterminator extractor.")
+        # ETAPA 1: CAÇAR E DESTRUIR TODAS AS SEÇÕES "RELACIONADAS"
+        related_titles = soup.find_all(['h2', 'h3'], string='Relacionadas')
+        
+        if related_titles:
+            logger.info(f"INFO (Lance!): Found and DESTROYING {len(related_titles)} 'Relacionadas' sections.")
+            for title in related_titles:
                 parent_section = title.find_parent('section')
                 if parent_section:
                     parent_section.decompose()
-        
-        # Remove scripts e styles para evitar 'figuras fantasmas'
-        for element in master_container.find_all(['script', 'style']):
+
+        # ETAPA 2: ISOLAR O <article> PARA DUPLA GARANTIA
+        article_container = soup.find('article')
+        if not article_container:
+            logger.error("CRITICAL ERROR (Lance!): The main <article> tag was not found.")
+            return None
+
+        # ETAPA 3: LIMPEZA FINAL DE SCRIPTS DENTRO DO <article>
+        for element in article_container.find_all(['script', 'style']):
             element.decompose()
 
-        # Retorna o HTML 100% limpo, sem barra lateral e sem relacionados internos.
-        return master_container
+        # Retorna o HTML do <article> completamente limpo.
+        return article_container
 
     def _clean_html_for_ge(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
         """
