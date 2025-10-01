@@ -248,9 +248,29 @@ def run_pipeline_cycle():
                         content_html += f"\n{credit_line}"
 
                         # Step 4: Prepare payload for WordPress
-                        wp_category_id = WORDPRESS_CATEGORIES.get(category)
 
-                        # 4.1: Determine featured media ID to avoid re-upload
+                        # 4.1: Combine fixed and AI-suggested categories
+                        FIXED_CATEGORY_IDS = {8, 267} # Futebol, Notícias
+                        
+                        final_category_ids = set(FIXED_CATEGORY_IDS)
+
+                        # Get category from feed config (the main one)
+                        main_category_id = WORDPRESS_CATEGORIES.get(category)
+                        if main_category_id:
+                            final_category_ids.add(main_category_id)
+
+                        # Get AI suggested categories
+                        suggested_categories = rewritten_data.get('categorias', [])
+                        if suggested_categories and isinstance(suggested_categories, list):
+                            # Expects a list of dicts like [{'nome': 'Barcelona'}, {'nome': 'Champions League'}]
+                            suggested_names = [cat['nome'] for cat in suggested_categories if isinstance(cat, dict) and 'nome' in cat]
+                            if suggested_names:
+                                logger.info(f"Resolving AI-suggested category names: {suggested_names}")
+                                dynamic_category_ids = wp_client.resolve_category_names_to_ids(suggested_names)
+                                if dynamic_category_ids:
+                                    final_category_ids.update(dynamic_category_ids)
+
+                        # 4.2: Determine featured media ID to avoid re-upload
                         featured_media_id = None
                         if featured_url := extracted_data.get('featured_image_url'):
                             k = featured_url.rstrip('/')
@@ -260,7 +280,7 @@ def run_pipeline_cycle():
                         if not featured_media_id and uploaded_id_map:
                             featured_media_id = next(iter(uploaded_id_map.values()), None)
 
-                        # 3.5: Set alt text for uploaded images
+                        # 4.3: Set alt text for uploaded images
                         focus_kw = rewritten_data.get("focus_keyphrase", "")
                         # The AI is asked to provide a dict like: { "filename.jpg": "alt text" }
                         alt_map = rewritten_data.get("image_alt_texts", {})
@@ -279,7 +299,7 @@ def run_pipeline_cycle():
                                 if alt_text:
                                     wp_client.set_media_alt_text(media_id, alt_text)
 
-                        # Prepare Yoast meta, including canonical URL to original source
+                        # 4.4: Prepare Yoast meta, including canonical URL to original source
                         yoast_meta = rewritten_data.get('yoast_meta', {})
                         yoast_meta['_yoast_wpseo_canonical'] = article_url_to_process
 
@@ -294,7 +314,7 @@ def run_pipeline_cycle():
                             'slug': rewritten_data.get('slug'),
                             'content': content_html,
                             'excerpt': rewritten_data.get('meta_description', ''),
-                            'categories': [wp_category_id] if wp_category_id else [],
+                            'categories': list(final_category_ids),
                             'tags': rewritten_data.get('tags_sugeridas', []),
                             'featured_media': featured_media_id,
                             'meta': yoast_meta,

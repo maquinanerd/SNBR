@@ -117,6 +117,85 @@ class WordPressClient:
         logger.info(f"Resolved tags {tags} to IDs: {tag_ids}")
         return tag_ids
 
+    def _get_existing_category_id(self, name: str) -> Optional[int]:
+        """Searches for an existing category by name or slug and returns its ID."""
+        slug = _slugify(name)
+        endpoint = f"{self.api_url}/categories"
+        # WordPress category search is not as reliable as tag search, so we get more results and filter
+        params = {"search": name, "per_page": 100}
+
+        try:
+            r = self.session.get(endpoint, params=params, timeout=20)
+            r.raise_for_status()
+            items = r.json()
+            
+            # Exact match on name (case-insensitive)
+            for item in items:
+                if item.get('name', '').strip().lower() == name.strip().lower():
+                    return int(item['id'])
+            # Match on slug
+            for item in items:
+                if item.get('slug') == slug:
+                    return int(item['id'])
+        except requests.RequestException as e:
+            logger.error(f"Error searching for category '{name}': {e}")
+        
+        return None
+
+    def _create_category(self, name: str) -> Optional[int]:
+        """Creates a new category and returns its ID."""
+        endpoint = f"{self.api_url}/categories"
+        payload = {"name": name, "slug": _slugify(name)}
+        
+        try:
+            r = self.session.post(endpoint, json=payload, timeout=20)
+            
+            if r.status_code in (200, 201):
+                cat_id = int(r.json()['id'])
+                logger.info(f"Created new category '{name}' with ID {cat_id}.")
+                return cat_id
+            
+            if r.status_code == 400 and isinstance(r.json(), dict) and r.json().get("code") == "term_exists":
+                logger.warning(f"Category '{name}' already exists (race condition). Re-fetching ID.")
+                return self._get_existing_category_id(name)
+            
+            r.raise_for_status()
+        except requests.RequestException as e:
+            logger.error(f"Error creating category '{name}': {e}")
+            if e.response is not None:
+                logger.error(f"Response body: {e.response.text}")
+
+        return None
+
+    def resolve_category_names_to_ids(self, category_names: List[str]) -> List[int]:
+        """Converts a list of category names into a list of integer IDs, creating categories if necessary."""
+        if not category_names:
+            return []
+
+        # Deduplicate while preserving order (for logging)
+        cleaned_names = list(dict.fromkeys([name.strip() for name in category_names if name.strip() and len(name) >= 1]))
+        
+        cat_ids: List[int] = []
+        for name in cleaned_names:
+            # Check local map first (from config)
+            cat_id = self.categories_map.get(name)
+            if not cat_id:
+                # Case-insensitive check on local map
+                for map_name, map_id in self.categories_map.items():
+                    if map_name.lower() == name.lower():
+                        cat_id = map_id
+                        break
+            
+            # If not in local map, query WordPress
+            if not cat_id:
+                cat_id = self._get_existing_category_id(name) or self._create_category(name)
+
+            if cat_id:
+                cat_ids.append(cat_id)
+        
+        logger.info(f"Resolved category names {cleaned_names} to IDs: {cat_ids}")
+        return cat_ids
+
     def upload_media_from_url(self, image_url: str, alt_text: str = "", max_attempts: int = 3) -> Optional[Dict[str, Any]]:
         """
         Downloads an image and uploads it to WordPress with a retry mechanism.
