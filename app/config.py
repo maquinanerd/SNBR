@@ -13,6 +13,7 @@ PIPELINE_ORDER: List[str] = [
     'as_es',
     'cbs_nfl',
     'cbs_nba',
+    'the_guardian_official',
 ]
 
 # --- Feeds RSS (padronizados, sem "synthetic_from") ---
@@ -46,6 +47,11 @@ RSS_FEEDS: Dict[str, Dict[str, Any]] = {
         'urls': ['https://www.cbssports.com/rss/headlines/nba/'],
         'category': 'outros-esportes',
         'source_name': 'CBS Sports',
+    },
+    'the_guardian_official': {
+        'urls': ['https://www.theguardian.com/football/rss'],
+        'category': 'futebol-internacional',
+        'source_name': 'The Guardian',
     },
 }
 
