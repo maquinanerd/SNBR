@@ -232,6 +232,8 @@ class FeedReader:
     def read_feeds(self, feed_config: Dict[str, Any], source_id: str) -> List[Dict[str, Any]]:
         raw_items = []
         feed_type = feed_config.get('type', 'rss')
+        deny_regex = feed_config.get('deny_regex')
+        deny = re.compile(deny_regex) if deny_regex else None
 
         for url in feed_config.get('urls', []):
             logger.info(f"Reading {feed_type} feed from {url} for source '{source_id}'")
@@ -243,13 +245,18 @@ class FeedReader:
                 raw_items.extend(self._parse_sitemap(
                     content, limit=50,
                     allow_regex=feed_config.get('allow_regex'),
-                    deny_regex=feed_config.get('deny_regex')
+                    deny_regex=deny_regex
                 ))
-            else: # Default to 'rss'
+            else:  # Default to 'rss'
                 feed = feedparser.parse(content)
                 if feed.bozo:
                     logger.warning(f"Feed from {url} is not well-formed: {feed.bozo_exception}")
-                raw_items.extend(feed.entries)
+                
+                entries = feed.entries
+                if deny:
+                    entries = [e for e in entries if not deny.search(e.get('title', ''))]
+                
+                raw_items.extend(entries)
         
         all_items = [normalize_item(item) for item in raw_items]
 

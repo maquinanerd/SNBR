@@ -22,6 +22,7 @@ RSS_FEEDS: Dict[str, Dict[str, Any]] = {
         'urls': ['https://aprenderpoker.site/feeds/lance/futebol/rss'],
         'category': 'futebol',
         'source_name': 'LANCE!',
+        'deny_regex': r'(?i)Onde Assistir',
     },
     'globo_futebol': {
         'urls': ['https://aprenderpoker.site/feeds/ge/futebol/rss'],
