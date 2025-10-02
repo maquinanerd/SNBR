@@ -40,11 +40,11 @@ class TagExtractor:
             return []
 
         text_to_process = ' '.join([title] * 3) + ' ' + content
-        proper_nouns = re.findall(r'\b[A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z\'-]*)*\b', text_to_process)
+        proper_nouns = re.findall(r'\b[A-Z][a-zA-Z\'-+]+(?:\s+[A-Z][a-zA-Z\'-+]+)*\b', text_to_process)
 
         cleaned_tags: Set[str] = set()
         for tag in proper_nouns:
-            tag = tag.strip()
+            tag = tag.strip().replace("'s", "")
             if self._is_valid_tag(tag):
                 cleaned_tags.add(tag)
 

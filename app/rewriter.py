@@ -48,14 +48,19 @@ class ContentRewriter:
 
         # Sanitize tags and attributes
         allowed_tags = {'p', 'b', 'a', 'strong', 'em', 'i'}
-        allowed_attrs = {'a': ['href', 'title', 'target', 'rel']}
+        disallowed_tags = {'script', 'style', 'iframe', 'img'} 
 
         for tag in soup.find_all(True):
+            if tag.name in disallowed_tags:
+                tag.decompose()
+                continue
+            
             if tag.name not in allowed_tags:
                 tag.unwrap()
                 continue
 
             attrs = dict(tag.attrs)
+            allowed_attrs = {'a': ['href', 'title', 'target', 'rel']}
             for attr, _ in attrs.items():
                 if attr not in allowed_attrs.get(tag.name, []):
                     del tag[attr]

@@ -9,7 +9,10 @@ load_dotenv()
 PIPELINE_ORDER: List[str] = [
     'lance',
     'globo_futebol',
-    'globo_internacional',
+    'marca',
+    'as_es',
+    'cbs_nfl',
+    'cbs_nba',
 ]
 
 # --- Feeds RSS (padronizados, sem "synthetic_from") ---
@@ -20,14 +23,29 @@ RSS_FEEDS: Dict[str, Dict[str, Any]] = {
         'source_name': 'LANCE!',
     },
     'globo_futebol': {
-        'urls': ['https://aprenderpoker.site/feeds/globo/futebol/rss'],
+        'urls': ['https://aprenderpoker.site/feeds/ge/futebol/rss'],
         'category': 'futebol',
         'source_name': 'Globo Esporte',
     },
-    'globo_internacional': {
-        'urls': ['https://aprenderpoker.site/feeds/globo/internacional/rss'],
+    'marca': {
+        'urls': ['https://aprenderpoker.site/feeds/marca/futbol/rss'],
         'category': 'futebol-internacional',
-        'source_name': 'Globo Esporte',
+        'source_name': 'Marca',
+    },
+    'as_es': {
+        'urls': ['https://aprenderpoker.site/feeds/as_es/primera/rss'],
+        'category': 'futebol-internacional',
+        'source_name': 'AS España',
+    },
+    'cbs_nfl': {
+        'urls': ['https://www.cbssports.com/rss/headlines/nfl/'],
+        'category': 'outros-esportes',
+        'source_name': 'CBS Sports',
+    },
+    'cbs_nba': {
+        'urls': ['https://www.cbssports.com/rss/headlines/nba/'],
+        'category': 'outros-esportes',
+        'source_name': 'CBS Sports',
     },
 }
 
@@ -81,6 +99,7 @@ WORDPRESS_CONFIG = {
 WORDPRESS_CATEGORIES: Dict[str, int] = {
     'futebol': 8,
     'futebol-internacional': 9,
+    'outros-esportes': 10,
     # Categorias genéricas
     'Notícias': 1,
 }
