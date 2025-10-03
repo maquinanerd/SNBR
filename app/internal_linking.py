@@ -62,7 +62,8 @@ def add_internal_links(
     # Combine into a single prioritized list of posts to try
     prioritized_link_options = pilar_options + category_options + other_options
 
-    text_nodes = soup.body.find_all(string=True)
+    # Find all text nodes in the document, not just the body
+    text_nodes = soup.find_all(string=True)
 
     for node in text_nodes:
         if links_inserted >= max_links:
