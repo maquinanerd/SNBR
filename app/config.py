@@ -115,8 +115,15 @@ WORDPRESS_CATEGORIES: Dict[str, int] = {
     'futebol': 8,
     'futebol-internacional': 9,
     'outros-esportes': 10,
+    'la-liga': 0, # TODO: Substitua 0 pelo ID correto da categoria La Liga
     # Categorias genéricas
     'Notícias': 1,
+}
+
+# --- Sinônimos de Categorias ---
+# Mapeia nomes alternativos (em minúsculas) para o slug canônico em WORDPRESS_CATEGORIES
+CATEGORY_ALIASES: Dict[str, str] = {
+    "liga ea sports": "la-liga",
 }
 
 # --- Agendador / Pipeline ---

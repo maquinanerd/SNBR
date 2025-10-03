@@ -13,6 +13,7 @@ from .config import (
     SCHEDULE_CONFIG,
     WORDPRESS_CONFIG,
     WORDPRESS_CATEGORIES,
+    CATEGORY_ALIASES, # Import the new alias map
     PIPELINE_CONFIG,
 )
 from .store import Database
@@ -277,9 +278,19 @@ def run_pipeline_cycle():
                         if suggested_categories and isinstance(suggested_categories, list):
                             # Expects a list of dicts like [{'nome': 'Barcelona'}, {'nome': 'Champions League'}]
                             suggested_names = [cat['nome'] for cat in suggested_categories if isinstance(cat, dict) and 'nome' in cat]
-                            if suggested_names:
-                                logger.info(f"Resolving AI-suggested category names: {suggested_names}")
-                                dynamic_category_ids = wp_client.resolve_category_names_to_ids(suggested_names)
+                            
+                            # Normalize category names using aliases
+                            normalized_names = []
+                            for name in suggested_names:
+                                canonical_name = CATEGORY_ALIASES.get(name.lower(), name)
+                                normalized_names.append(canonical_name)
+                            
+                            if suggested_names != normalized_names:
+                                logger.info(f"Normalized category names: {suggested_names} -> {normalized_names}")
+
+                            if normalized_names:
+                                logger.info(f"Resolving AI-suggested category names: {normalized_names}")
+                                dynamic_category_ids = wp_client.resolve_category_names_to_ids(normalized_names)
                                 if dynamic_category_ids:
                                     final_category_ids.update(dynamic_category_ids)
 
