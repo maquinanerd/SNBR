@@ -260,16 +260,6 @@ def run_pipeline_cycle():
                         credit_line = f'<p><strong>Fonte:</strong> <a href="{article_url_to_process}" target="_blank" rel="noopener noreferrer">{source_name}</a></p>'
                         content_html += f"\n{credit_line}"
 
-                        # Step 4: Add internal links
-                        if link_map:
-                            logger.info("Attempting to add internal links with prioritization...")
-                            # Pass the current post's categories to the linking function for prioritization
-                            content_html = add_internal_links(
-                                html_content=content_html, 
-                                link_map_data=link_map,
-                                current_post_categories=list(final_category_ids)
-                            )
-
                         # Step 5: Prepare payload for WordPress
 
                         # 5.1: Combine fixed and AI-suggested categories
@@ -292,6 +282,15 @@ def run_pipeline_cycle():
                                 dynamic_category_ids = wp_client.resolve_category_names_to_ids(suggested_names)
                                 if dynamic_category_ids:
                                     final_category_ids.update(dynamic_category_ids)
+
+                        # Step 4: Add internal links (now in the correct place)
+                        if link_map:
+                            logger.info("Attempting to add internal links with prioritization...")
+                            content_html = add_internal_links(
+                                html_content=content_html,
+                                link_map_data=link_map,
+                                current_post_categories=list(final_category_ids)
+                            )
 
                         # 5.2: Determine featured media ID to avoid re-upload
                         featured_media_id = None
