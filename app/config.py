@@ -102,6 +102,14 @@ WORDPRESS_CONFIG = {
     'password': os.getenv('WORDPRESS_PASSWORD'),
 }
 
+# --- Posts Pilares para Linkagem Interna ---
+# Adicione aqui as URLs completas dos seus posts mais importantes.
+# A lógica de linkagem interna dará prioridade máxima a links que apontam para estes artigos.
+PILAR_POSTS: List[str] = [
+    # Ex: "https://seusite.com/guia-completo-de-futebol",
+    # Ex: "https://seusite.com/historia-das-copas-do-mundo",
+]
+
 # IDs das categorias no WordPress (ajuste os IDs conforme o seu WP)
 WORDPRESS_CATEGORIES: Dict[str, int] = {
     'futebol': 8,

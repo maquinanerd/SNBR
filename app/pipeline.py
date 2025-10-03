@@ -31,6 +31,7 @@ from .html_utils import (
     strip_naked_internal_links,
 )
 from .ai_processor import AIProcessor
+from .internal_linking import add_internal_links
 from bs4 import BeautifulSoup
 from .cleaners import clean_html_for_globo_esporte
 
@@ -93,6 +94,18 @@ def is_valid_upload_candidate(url: str) -> bool:
 def run_pipeline_cycle():
     """Executes a full cycle of the content processing pipeline."""
     logger.info("Starting new pipeline cycle.")
+
+    # Load the internal link map once per cycle
+    link_map = {}
+    try:
+        with open('data/internal_links.json', 'r', encoding='utf-8') as f:
+            link_map = json.load(f)
+        if link_map:
+            logger.info(f"Successfully loaded internal link map with {len(link_map)} terms.")
+    except FileNotFoundError:
+        logger.warning("Internal link map 'data/internal_links.json' not found. Skipping internal linking.")
+    except json.JSONDecodeError:
+        logger.error("Error decoding 'data/internal_links.json'. Skipping internal linking.")
 
     db = Database()
     feed_reader = FeedReader(user_agent=PIPELINE_CONFIG.get('publisher_name', 'Bot'))
@@ -242,14 +255,24 @@ def run_pipeline_cycle():
                         # Só player do YouTube (oEmbed) e sem “Crédito: …”
                         content_html = strip_credits_and_normalize_youtube(content_html)
                         
-                        # Adicionar crédito da fonte no final do post
+                        # Add credit line at the end of the post
                         source_name = RSS_FEEDS.get(source_id, {}).get('source_name', urlparse(article_url_to_process).netloc)
                         credit_line = f'<p><strong>Fonte:</strong> <a href="{article_url_to_process}" target="_blank" rel="noopener noreferrer">{source_name}</a></p>'
                         content_html += f"\n{credit_line}"
 
-                        # Step 4: Prepare payload for WordPress
+                        # Step 4: Add internal links
+                        if link_map:
+                            logger.info("Attempting to add internal links with prioritization...")
+                            # Pass the current post's categories to the linking function for prioritization
+                            content_html = add_internal_links(
+                                html_content=content_html, 
+                                link_map_data=link_map,
+                                current_post_categories=list(final_category_ids)
+                            )
 
-                        # 4.1: Combine fixed and AI-suggested categories
+                        # Step 5: Prepare payload for WordPress
+
+                        # 5.1: Combine fixed and AI-suggested categories
                         FIXED_CATEGORY_IDS = {8, 267} # Futebol, Notícias
                         
                         final_category_ids = set(FIXED_CATEGORY_IDS)
@@ -270,7 +293,7 @@ def run_pipeline_cycle():
                                 if dynamic_category_ids:
                                     final_category_ids.update(dynamic_category_ids)
 
-                        # 4.2: Determine featured media ID to avoid re-upload
+                        # 5.2: Determine featured media ID to avoid re-upload
                         featured_media_id = None
                         if featured_url := extracted_data.get('featured_image_url'):
                             k = featured_url.rstrip('/')
@@ -280,7 +303,7 @@ def run_pipeline_cycle():
                         if not featured_media_id and uploaded_id_map:
                             featured_media_id = next(iter(uploaded_id_map.values()), None)
 
-                        # 4.3: Set alt text for uploaded images
+                        # 5.3: Set alt text for uploaded images
                         focus_kw = rewritten_data.get("focus_keyphrase", "")
                         # The AI is asked to provide a dict like: { "filename.jpg": "alt text" }
                         alt_map = rewritten_data.get("image_alt_texts", {})
@@ -299,7 +322,7 @@ def run_pipeline_cycle():
                                 if alt_text:
                                     wp_client.set_media_alt_text(media_id, alt_text)
 
-                        # 4.4: Prepare Yoast meta, including canonical URL to original source
+                        # 5.4: Prepare Yoast meta, including canonical URL to original source
                         yoast_meta = rewritten_data.get('yoast_meta', {})
                         yoast_meta['_yoast_wpseo_canonical'] = article_url_to_process
 

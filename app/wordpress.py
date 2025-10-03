@@ -301,6 +301,64 @@ class WordPressClient:
             logger.error(f"Failed to create WordPress post: {e}", exc_info=False)
             return None
 
+    def get_published_posts(self, fields: List[str], max_posts: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Fetches published posts, handling pagination, with an optional limit.
+
+        Args:
+            fields: A list of fields to retrieve for each post.
+            max_posts: Optional limit on the total number of posts to fetch.
+        """
+        all_posts = []
+        page = 1
+        per_page = 100
+        
+        fields_str = ','.join(fields)
+
+        while True:
+            # Exit if we have reached the desired number of posts
+            if max_posts and len(all_posts) >= max_posts:
+                logger.info(f"Reached max_posts limit of {max_posts}. Stopping fetch.")
+                break
+
+            endpoint = f"{self.api_url}/posts"
+            params = {
+                "status": "publish",
+                "per_page": per_page,
+                "page": page,
+                "_fields": fields_str,
+            }
+            try:
+                logger.info(f"Fetching page {page} of published posts...")
+                r = self.session.get(endpoint, params=params, timeout=30)
+                r.raise_for_status()
+                
+                posts = r.json()
+                if not posts:
+                    logger.info("No more posts found. Finished fetching.")
+                    break
+                
+                all_posts.extend(posts)
+                
+                if len(posts) < per_page:
+                    logger.info(f"Last page reached ({len(posts)} posts). Finished fetching.")
+                    break
+                    
+                page += 1
+
+            except requests.RequestException as e:
+                logger.error(f"Error fetching published posts (page {page}): {e}")
+                if e.response is not None:
+                    logger.error(f"Response body: {e.response.text}")
+                break
+        
+        # Trim the list to the exact number if max_posts is set
+        if max_posts:
+            all_posts = all_posts[:max_posts]
+
+        logger.info(f"Successfully fetched a total of {len(all_posts)} posts.")
+        return all_posts
+
     def close(self):
         """Closes the requests session."""
         self.session.close()
