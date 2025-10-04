@@ -1,17 +1,22 @@
-import argparse
+# app/main.py
 import logging
 import sys
-from datetime import datetime, timezone
-from apscheduler.schedulers.blocking import BlockingScheduler
+import time
+import random
 
-from app.pipeline import run_pipeline_cycle
-from app.store import Database
-from app.config import SCHEDULE_CONFIG
+from .config import (
+    DELAY_SECONDS, IDLE_SLEEP, FEED_REFRESH_MIN, FEED_REFRESH_MAX
+)
+from .store import Database
+from .feeds import fetch_all_feeds
+from . import queue_store
+from . import worker
+from .ai_processor import AIProcessor
 
-# Configura o logging para exibir informações no terminal e salvar em um arquivo
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(module)s - %(message)s",
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stdout),
@@ -19,55 +24,89 @@ logging.basicConfig(
     ]
 )
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 def initialize_database():
-    """Inicializa o banco de dados e garante que as tabelas sejam criadas."""
-    logger.info("Verificando o esquema do banco de dados...")
+    """Initializes the database and ensures tables are created."""
+    log.info("Verifying database schema...")
     try:
         db = Database()
-        db.initialize()  # Garante que as tabelas sejam criadas
+        db.initialize()
         db.close()
-        logger.info("Verificação do banco de dados concluída com sucesso.")
+        log.info("Database verification successful.")
     except Exception as e:
-        logger.critical(f"Falha ao inicializar o banco de dados: {e}", exc_info=True)
+        log.critical(f"Failed to initialize database: {e}", exc_info=True)
         sys.exit(1)
 
-def main():
-    """Função principal para executar o pipeline de conteúdo."""
-    parser = argparse.ArgumentParser(description="Executa o pipeline de conteúdo VocMoney.")
-    parser.add_argument(
-        '--once',
-        action='store_true',
-        help="Executa o ciclo do pipeline uma vez e sai."
-    )
-    args = parser.parse_args()
+def run_247():
+    """Runs the 24/7 worker loop."""
+    log.info("Starting 24/7 worker loop: 1 worker, ~%ds delay, feed refresh ~%d-%d min.", 
+             DELAY_SECONDS, FEED_REFRESH_MIN / 60, FEED_REFRESH_MAX / 60)
 
     initialize_database()
 
-    if args.once:
-        logger.info("Executando um único ciclo do pipeline (--once).")
-        try:
-            run_pipeline_cycle()
-        except Exception as e:
-            logger.critical(f"Erro crítico durante a execução do ciclo único: {e}", exc_info=True)
-        finally:
-            logger.info("Ciclo único finalizado.")
-    else:
-        # Agenda as execuções futuras
-        interval = SCHEDULE_CONFIG.get('check_interval_minutes', 15)
-        logger.info(f"Agendador iniciado. O pipeline será executado a cada {interval} minutos.")
+    # These instances are created once and passed to the worker
+    ai_processor = AIProcessor()
+    db = Database()
 
-        scheduler = BlockingScheduler(timezone='UTC')
+    last_refresh = 0.0
+    refresh_interval = random.randint(FEED_REFRESH_MIN, FEED_REFRESH_MAX)
 
-        # Executa o ciclo uma vez imediatamente e depois a cada `interval` minutos.
-        scheduler.add_job(run_pipeline_cycle, 'interval', minutes=interval, next_run_time=datetime.now(timezone.utc))
+    try:
+        while True:
+            now = time.monotonic()
 
-        logger.info("Pressione Ctrl+C para sair.")
-        try:
-            scheduler.start()
-        except (KeyboardInterrupt, SystemExit):
-            logger.info("Agendador interrompido pelo usuário.")
+            # 1. Refresh feeds if it's time
+            if not queue_store.is_empty() and (now - last_refresh >= refresh_interval):
+                log.info("Feed refresh interval reached.")
+                try:
+                    new_items_count = fetch_all_feeds()
+                    if new_items_count > 0:
+                        log.info(f"Refreshed feeds and enqueued {new_items_count} new articles.")
+                    else:
+                        log.info("Feed refresh completed, no new articles found.")
+                except Exception:
+                    log.exception("Error during feed refresh cycle.")
+                last_refresh = now
+                refresh_interval = random.randint(FEED_REFRESH_MIN, FEED_REFRESH_MAX)
+
+            # 2. Pop one article from the queue
+            article = queue_store.pop()
+
+            if article:
+                log.info(f"Popped article {article.get('id')} from queue.")
+                # 3. Process the article
+                success = worker.process_one_article(article, ai_processor, db)
+                
+                if success:
+                    log.info(f"Successfully processed article {article.get('id')}.")
+                else:
+                    log.warning(f"Failed to process article {article.get('id')}. It may have been discarded.")
+
+                # 4. Target cadence between articles
+                sleep_duration = DELAY_SECONDS + random.randint(0, 10)
+                log.info(f"Sleeping for {sleep_duration}s before next article.")
+                time.sleep(sleep_duration)
+            else:
+                # Queue is empty, sleep for a short while
+                if last_refresh == 0: # First run, fetch feeds immediately
+                    log.info("Queue is empty, running initial feed fetch.")
+                    try:
+                        fetch_all_feeds()
+                    except Exception:
+                        log.exception("Error during initial feed fetch.")
+                    last_refresh = time.monotonic()
+                
+                log.info(f"Queue is empty. Sleeping for {IDLE_SLEEP}s.")
+                time.sleep(IDLE_SLEEP)
+
+    except KeyboardInterrupt:
+        log.info("Worker loop interrupted by user.")
+    except Exception:
+        log.critical("A critical error occurred in the main worker loop.", exc_info=True)
+    finally:
+        db.close()
+        log.info("Worker loop terminated.")
 
 if __name__ == "__main__":
-    main()
+    run_247()

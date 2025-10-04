@@ -9,6 +9,10 @@ import time
 import hashlib
 from datetime import datetime, timezone
 
+from . import queue_store
+from .config import PIPELINE_ORDER, RSS_FEEDS, USER_AGENT
+from .store import Database
+
 logger = logging.getLogger(__name__)
 
 NS = {"ns":"http://www.sitemaps.org/schemas/sitemap/0.9",
@@ -275,3 +279,47 @@ class FeedReader:
                 seen_urls.add(item_url)
         logger.info(f"Found {len(unique_items)} total unique items for {source_id}.")
         return unique_items
+
+def fetch_all_feeds() -> int:
+    """Fetches all feeds, filters for new articles, and pushes them to the queue."""
+    log = logging.getLogger(__name__)
+    db = Database()
+    feed_reader = FeedReader(user_agent=USER_AGENT)
+    all_new_articles = []
+
+    log.info("Starting feed refresh cycle.")
+
+    try:
+        for source_id in PIPELINE_ORDER:
+            feed_config = RSS_FEEDS.get(source_id)
+            if not feed_config:
+                log.warning(f"No configuration found for feed source: {source_id}")
+                continue
+
+            try:
+                items = feed_reader.read_feeds(feed_config, source_id)
+                new_articles = db.filter_new_articles(source_id, items)
+
+                # Add context to each article for the worker
+                for article in new_articles:
+                    article['source_id'] = source_id
+                    article['category'] = feed_config.get('category')
+                    article['source_name'] = feed_config.get('source_name')
+                
+                if new_articles:
+                    log.info(f"Found {len(new_articles)} new articles for {source_id}.")
+                    all_new_articles.extend(new_articles)
+
+            except Exception as e:
+                log.exception(f"Error processing feed {source_id}: {e}")
+
+    finally:
+        db.close()
+
+    if all_new_articles:
+        queue_store.push_many(all_new_articles)
+        log.info(f"Pushed {len(all_new_articles)} new articles to the queue.")
+        return len(all_new_articles)
+    
+    log.info("No new articles found in this cycle.")
+    return 0

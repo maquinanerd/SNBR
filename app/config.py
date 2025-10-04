@@ -144,3 +144,12 @@ PIPELINE_CONFIG = {
         'https://exemplo.com/logo.png'  # TODO: atualizar para a URL real do logo
     ),
 }
+
+# --- Worker 24/7 Config ---
+DELAY_SECONDS     = 120      # 1 post a cada 120s
+IDLE_SLEEP        = 15       # cochilo quando fila está vazia
+FEED_REFRESH_MIN  = 10 * 60  # 10 min
+FEED_REFRESH_MAX  = 20 * 60  # 20 min
+BACKOFF_BASE      = 60       # 429 → 60s, 120s, 240s... até BACKOFF_MAX
+BACKOFF_MAX       = 90 * 60  # 90 min
+MAX_JSON_RETRY    = 1        # 1 retry forçando JSON

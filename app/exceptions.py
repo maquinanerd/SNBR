@@ -12,6 +12,15 @@ class AIProcessorError(Exception):
     pass
 
 
+class Quota429Error(AIProcessorError):
+    """Raised specifically for HTTP 429 Resource Exhausted errors."""
+    pass
+
+class JsonFormatError(AIProcessorError):
+    """Raised when the AI response is not valid JSON or fails schema validation."""
+    pass
+
+
 class AllKeysFailedError(AIProcessorError):
     """
     Raised when all available API keys for a specific category have been tried
