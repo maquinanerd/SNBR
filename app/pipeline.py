@@ -363,11 +363,9 @@ def run_pipeline_cycle():
                             logger.error(f"Failed to publish post for {article_url_to_process}")
                             db.update_article_status(article_db_id, 'FAILED', reason="WordPress publishing failed")
 
-                        # Per-article delay to respect API rate limits and avoid being predictable
-                        base_delay = SCHEDULE_CONFIG.get('per_article_delay_seconds', 8)
-                        # Add jitter to be less predictable (e.g., for 8s, sleep between 6s and 10s)
-                        delay = max(1.0, random.uniform(base_delay - 2, base_delay + 2))
-                        logger.info(f"Sleeping for {delay:.1f}s (per-article delay).")
+                        # Per-article delay to respect API rate limits.
+                        delay = 120
+                        logger.info(f"Sleeping for {delay}s (per-article delay).")
                         time.sleep(delay)
 
                     except Exception as e:
