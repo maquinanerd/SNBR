@@ -359,6 +359,42 @@ class WordPressClient:
         logger.info(f"Successfully fetched a total of {len(all_posts)} posts.")
         return all_posts
 
+    def get_tags_map_by_ids(self, tag_ids: List[int]) -> Dict[int, str]:
+        """ 
+        Fetches tag details from a list of IDs and returns a map of {id: name}.
+        Handles pagination for large lists of IDs.
+        """
+        if not tag_ids:
+            return {}
+
+        tag_map = {}
+        unique_ids = list(set(tag_ids))
+        endpoint = f"{self.api_url}/tags"
+        
+        # The 'include' parameter can take a list of up to 100 IDs.
+        # We chunk the requests to handle more than 100.
+        for i in range(0, len(unique_ids), 100):
+            chunk = unique_ids[i:i + 100]
+            params = {
+                "include": ",".join(map(str, chunk)),
+                "per_page": 100, # Ensure we get all requested items in the chunk
+                "_fields": "id,name"
+            }
+            try:
+                logger.info(f"Fetching names for {len(chunk)} tag IDs...")
+                r = self.session.get(endpoint, params=params, timeout=30)
+                r.raise_for_status()
+                tags_data = r.json()
+                for tag in tags_data:
+                    tag_map[tag['id']] = tag['name']
+            except requests.RequestException as e:
+                logger.error(f"Error fetching tag details: {e}")
+                # Continue to next chunk even if one fails
+                continue
+        
+        logger.info(f"Successfully mapped {len(tag_map)} tag IDs to names.")
+        return tag_map
+
     def close(self):
         """Closes the requests session."""
         self.session.close()
